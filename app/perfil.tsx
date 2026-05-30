@@ -77,7 +77,7 @@ export default function Perfil() {
       />
 
       <Text style={{ color: '#aaa', fontSize: 18, marginBottom: 8 }}>
-        Usuario
+        Usuário
       </Text>
       <TextInput
         value={usuario?.username || 'usuario'}

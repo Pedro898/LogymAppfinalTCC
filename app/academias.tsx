@@ -5,6 +5,7 @@ import { useCallback, useState } from 'react';
 import {
   FlatList,
   Image,
+  ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
@@ -14,10 +15,13 @@ import {
 import { academiasLocais, getAcademiaImagem } from '@/constants/academias';
 import { formatarNomeUsuario, type Usuario } from '@/lib/api';
 
+const categorias = ['Todos', 'Musculação', 'Crossfit', 'Ginástica', 'Lutas'];
+
 export default function Academias() {
   const router = useRouter();
   const [menuAberto, setMenuAberto] = useState(false);
   const [busca, setBusca] = useState('');
+  const [categoriaSelecionada, setCategoriaSelecionada] = useState('Todos');
   const [favoritos, setFavoritos] = useState<string[]>([]);
   const [usuario, setUsuario] = useState<Usuario | null>(null);
 
@@ -39,7 +43,12 @@ export default function Academias() {
 
   const academiasFiltradas = academiasLocais.filter((academia) => {
     const texto = `${academia.nome} ${academia.endereco} ${academia.cidade}`.toLowerCase();
-    return texto.includes(busca.toLowerCase());
+    const correspondeBusca = texto.includes(busca.toLowerCase());
+    const correspondeCategoria =
+      categoriaSelecionada === 'Todos' ||
+      academia.categorias?.includes(categoriaSelecionada);
+
+    return correspondeBusca && correspondeCategoria;
   });
 
   async function alternarFavorito(id: string) {
@@ -186,23 +195,58 @@ export default function Academias() {
         />
       </View>
 
-      <View style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#111',
-        borderRadius: 20,
-        paddingHorizontal: 15,
-        marginBottom: 15,
-      }}>
-        <Ionicons name="search" size={20} color="#888" />
-        <TextInput
-          placeholder="Localizar academias"
-          placeholderTextColor="#888"
-          value={busca}
-          onChangeText={setBusca}
-          style={{ flex: 1, color: '#fff', marginLeft: 10 }}
-        />
-        <Ionicons name="ellipsis-vertical" size={20} color="#888" />
+      <View style={{ marginBottom: 15 }}>
+        <View style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: '#111',
+          borderRadius: 20,
+          paddingHorizontal: 15,
+        }}>
+          <Ionicons name="search" size={20} color="#888" />
+          <TextInput
+            placeholder="Localizar academias"
+            placeholderTextColor="#888"
+            value={busca}
+            onChangeText={setBusca}
+            style={{ flex: 1, color: '#fff', marginLeft: 10 }}
+          />
+        </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{
+            gap: 8,
+            paddingTop: 12,
+          }}
+        >
+          {categorias.map((categoria) => {
+            const selecionada = categoriaSelecionada === categoria;
+
+            return (
+              <TouchableOpacity
+                key={categoria}
+                onPress={() => setCategoriaSelecionada(categoria)}
+                style={{
+                  backgroundColor: selecionada ? '#f97316' : '#111',
+                  borderColor: selecionada ? '#f97316' : '#333',
+                  borderRadius: 18,
+                  borderWidth: 1,
+                  paddingHorizontal: 14,
+                  paddingVertical: 8,
+                }}
+              >
+                <Text style={{
+                  color: selecionada ? '#000' : '#fff',
+                  fontWeight: 'bold',
+                }}>
+                  {categoria}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
       <FlatList

@@ -19,7 +19,7 @@ export default function Login() {
 
     return {
       id: usuarioDigitado,
-      nome: nome || 'Usuario',
+      nome: nome || 'Usuário',
       username: usuarioDigitado,
     };
   }
@@ -28,7 +28,7 @@ export default function Login() {
     setErro('');
 
     if (!username || !password) {
-      setErro('Preencha usuario e senha.');
+      setErro('Preencha usuário e senha.');
       return;
     }
 
@@ -45,8 +45,8 @@ export default function Login() {
         mensagem.includes('Failed to fetch') ||
           mensagem.includes('Network request failed') ||
           mensagem.includes('Tempo esgotado')
-          ? 'Nao foi possivel conectar ao backend. Confira o endereco da API.'
-          : 'Usuario ou senha invalidos.'
+          ? 'Não foi possível conectar ao backend. Confira o endereço da API.'
+          : 'Usuário ou senha inválidos.'
       );
       setCarregando(false);
       return;
@@ -83,11 +83,11 @@ export default function Login() {
         shadowRadius: 10
       }}>
         <Text style={{ color: '#ffffff', marginBottom: 5 }}>
-          Usuario
+          Usuário
         </Text>
 
         <TextInput
-          placeholder="Digite seu usuario"
+          placeholder="Digite seu usuário"
           placeholderTextColor="#ffffff"
           value={username}
           onChangeText={setUsername}
@@ -167,7 +167,7 @@ export default function Login() {
           marginTop: 20,
           textAlign: 'center'
         }}>
-          Ainda nao possui uma conta?{' '}
+          Ainda não possui uma conta?{' '}
 
           <Text
             onPress={() => Linking.openURL('https://meusite.com/cadastro')}

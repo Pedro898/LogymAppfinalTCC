@@ -54,7 +54,7 @@ export default function Favoritos() {
 
       {academiasFavoritas.length === 0 ? (
         <Text style={{ color: '#ccc', fontSize: 16 }}>
-          Voce ainda nao favoritou nenhuma academia.
+          Você ainda não favoritou nenhuma academia.
         </Text>
       ) : (
         <FlatList

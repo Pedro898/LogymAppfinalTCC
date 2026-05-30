@@ -7,6 +7,8 @@ export type Academia = {
   endereco: string;
   cidade: string;
   cep: string;
+  categorias?: string[];
+  avaliacao?: number;
   descricao?: string;
   imagemUrl?: string;
   infos?: string[];
@@ -21,7 +23,7 @@ export type Usuario = {
 };
 
 export function formatarNomeUsuario(usuario: Usuario | null) {
-  const primeiroNome = (usuario?.nome || usuario?.username || 'Usuario')
+  const primeiroNome = (usuario?.nome || usuario?.username || 'Usuário')
     .trim()
     .split(/\s+/)[0]
     .toLowerCase();
@@ -98,7 +100,7 @@ async function request<T>(rota: string, options: RequestInit = {}): Promise<T> {
 
   if (!resposta.ok) {
     const mensagem = await resposta.text();
-    throw new Error(mensagem || 'Erro na comunicacao com o backend.');
+    throw new Error(mensagem || 'Erro na comunicação com o backend.');
   }
 
   const texto = await resposta.text();

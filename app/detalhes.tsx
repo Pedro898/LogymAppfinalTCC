@@ -90,6 +90,12 @@ export default function Detalhes() {
               {academia.cidade}
             </Text>
             <Text style={{ color: '#f97316', fontSize: 17 }}>{academia.cep}</Text>
+            {academia.avaliacao ? (
+              <Text style={{ color: '#fff', fontSize: 17, marginTop: 8 }}>
+                <Text style={{ color: '#aaa' }}>Avaliação:</Text>{' '}
+                {academia.avaliacao.toFixed(1)} ⭐
+              </Text>
+            ) : null}
           </View>
         </View>
 
@@ -100,7 +106,7 @@ export default function Detalhes() {
             fontWeight: 'bold',
             marginBottom: 20,
           }}>
-            Informacoes
+            Informações
           </Text>
 
           {(academia.infos || []).map((info, index) => (
