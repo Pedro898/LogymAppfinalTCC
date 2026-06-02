@@ -6,6 +6,7 @@ import { Image, Linking, Text, TextInput, TouchableOpacity, View } from 'react-n
 
 export default function Login() {
   const router = useRouter();
+
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [carregando, setCarregando] = useState(false);
@@ -13,6 +14,7 @@ export default function Login() {
 
   function criarUsuarioLocal(): Usuario {
     const usuarioDigitado = username.trim();
+
     const nome = usuarioDigitado.includes('@')
       ? usuarioDigitado.split('@')[0]
       : usuarioDigitado;
@@ -21,6 +23,7 @@ export default function Login() {
       id: usuarioDigitado,
       nome: nome || 'Usuário',
       username: usuarioDigitado,
+      cep: '',
     };
   }
 
@@ -34,13 +37,26 @@ export default function Login() {
 
     try {
       setCarregando(true);
-      const resposta = await login(username, password);
-      const usuarioLogado = resposta.usuario || criarUsuarioLocal();
 
-      await AsyncStorage.setItem('usuario', JSON.stringify(usuarioLogado));
+      const resposta = await login(username, password);
+
+      const usuarioBackend = resposta.usuario || criarUsuarioLocal();
+
+      const usuarioParaSalvar: Usuario = {
+        id: usuarioBackend.id,
+        nome: usuarioBackend.nome || usuarioBackend.username || username,
+        username: usuarioBackend.username || username,
+        nivelAcesso: usuarioBackend.nivelAcesso,
+        statusUsuario: usuarioBackend.statusUsuario,
+        cep: usuarioBackend.cep || '',
+      };
+
+      await AsyncStorage.setItem('usuario', JSON.stringify(usuarioParaSalvar));
+
       router.replace('/academias');
     } catch (error) {
       const mensagem = error instanceof Error ? error.message : '';
+
       setErro(
         mensagem.includes('Failed to fetch') ||
           mensagem.includes('Network request failed') ||
@@ -48,8 +64,8 @@ export default function Login() {
           ? 'Não foi possível conectar ao backend. Confira o endereço da API.'
           : 'Usuário ou senha inválidos.'
       );
+    } finally {
       setCarregando(false);
-      return;
     }
   }
 
@@ -58,7 +74,7 @@ export default function Login() {
       flex: 1,
       backgroundColor: '#000000',
       justifyContent: 'center',
-      padding: 25
+      padding: 25,
     }}>
       <Image
         source={require('../assets/images/logo.png')}
@@ -70,7 +86,7 @@ export default function Login() {
           shadowColor: '#f97316',
           shadowOffset: { width: 0, height: 0 },
           shadowOpacity: 0,
-          shadowRadius: 20
+          shadowRadius: 20,
         }}
       />
 
@@ -80,7 +96,7 @@ export default function Login() {
         borderRadius: 25,
         shadowColor: '#000',
         shadowOpacity: 0.3,
-        shadowRadius: 10
+        shadowRadius: 10,
       }}>
         <Text style={{ color: '#ffffff', marginBottom: 5 }}>
           Usuário
@@ -97,7 +113,7 @@ export default function Login() {
             color: '#fff',
             padding: 15,
             borderRadius: 12,
-            marginBottom: 15
+            marginBottom: 15,
           }}
         />
 
@@ -116,14 +132,14 @@ export default function Login() {
             color: '#fff',
             padding: 15,
             borderRadius: 12,
-            marginBottom: 10
+            marginBottom: 10,
           }}
         />
 
         {erro ? (
           <Text style={{
             color: '#ffb4b4',
-            marginBottom: 12
+            marginBottom: 12,
           }}>
             {erro}
           </Text>
@@ -134,7 +150,7 @@ export default function Login() {
           style={{
             color: '#f97316',
             textAlign: 'right',
-            marginBottom: 20
+            marginBottom: 20,
           }}
         >
           Esqueceu a senha?
@@ -150,13 +166,13 @@ export default function Login() {
             alignItems: 'center',
             shadowColor: '#f97316',
             shadowOpacity: 0.6,
-            shadowRadius: 10
+            shadowRadius: 10,
           }}
         >
           <Text style={{
             color: '#fff',
             fontWeight: 'bold',
-            fontSize: 16
+            fontSize: 16,
           }}>
             {carregando ? 'Entrando...' : 'Entrar'}
           </Text>
@@ -165,7 +181,7 @@ export default function Login() {
         <Text style={{
           color: '#fff',
           marginTop: 20,
-          textAlign: 'center'
+          textAlign: 'center',
         }}>
           Ainda não possui uma conta?{' '}
 
@@ -174,7 +190,7 @@ export default function Login() {
             style={{
               color: '#f97316',
               fontWeight: 'bold',
-              textDecorationLine: 'underline'
+              textDecorationLine: 'underline',
             }}
           >
             Cadastre-se

@@ -8,6 +8,7 @@ import { academiasLocais, getAcademiaImagem } from '@/constants/academias';
 
 export default function Favoritos() {
   const router = useRouter();
+
   const [favoritos, setFavoritos] = useState<string[]>([]);
 
   useFocusEffect(
@@ -39,7 +40,10 @@ export default function Favoritos() {
       paddingTop: 60,
       paddingHorizontal: 15,
     }}>
-      <TouchableOpacity onPress={() => router.back()} style={{ marginBottom: 25 }}>
+      <TouchableOpacity
+        onPress={() => router.back()}
+        style={{ marginBottom: 25 }}
+      >
         <Ionicons name="arrow-back-outline" size={35} color="#f97316" />
       </TouchableOpacity>
 
@@ -62,7 +66,10 @@ export default function Favoritos() {
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
             <TouchableOpacity
-              onPress={() => router.push({ pathname: '/detalhes', params: { id: item.id } })}
+              onPress={() => router.push({
+                pathname: '/detalhes',
+                params: { id: item.id },
+              })}
               style={{
                 flexDirection: 'row',
                 backgroundColor: '#0a0a0a',
@@ -71,15 +78,31 @@ export default function Favoritos() {
                 overflow: 'hidden',
               }}
             >
-              <Image source={getAcademiaImagem(item)} style={{ width: 120, height: 120 }} />
+              <Image
+                source={getAcademiaImagem(item)}
+                style={{ width: 120, height: 120 }}
+              />
 
               <View style={{ flex: 1, padding: 10 }}>
-                <Text style={{ color: '#f97316', fontSize: 18, fontWeight: 'bold' }}>
+                <Text style={{
+                  color: '#f97316',
+                  fontSize: 18,
+                  fontWeight: 'bold',
+                }}>
                   {item.nome}
                 </Text>
-                <Text style={{ color: '#ccc', marginTop: 5 }}>{item.endereco}</Text>
-                <Text style={{ color: '#ccc' }}>{item.cidade}</Text>
-                <Text style={{ color: '#f97316', marginTop: 5 }}>{item.cep}</Text>
+
+                <Text style={{ color: '#ccc', marginTop: 5 }}>
+                  {item.endereco}
+                </Text>
+
+                <Text style={{ color: '#ccc' }}>
+                  {item.cidade}
+                </Text>
+
+                <Text style={{ color: '#f97316', marginTop: 5 }}>
+                  {item.cep}
+                </Text>
               </View>
 
               <TouchableOpacity

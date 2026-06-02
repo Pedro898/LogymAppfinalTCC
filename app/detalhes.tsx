@@ -2,21 +2,32 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Image, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import {
+  Image,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 import { academiasLocais, getAcademiaImagem } from '@/constants/academias';
 
 export default function Detalhes() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+
   const [favoritos, setFavoritos] = useState<string[]>([]);
 
+  // Busca a academia pelo ID recebido da tela academias/favoritos.
+  // Como estamos deixando essa parte apenas front-end,
+  // os dados vêm do arquivo constants/academias.ts.
   const academia =
     academiasLocais.find((item) => item.id === id) || academiasLocais[0];
 
   useEffect(() => {
     async function carregarFavoritos() {
       const favoritosSalvos = await AsyncStorage.getItem('favoritos');
+
       setFavoritos(favoritosSalvos ? JSON.parse(favoritosSalvos) : []);
     }
 
@@ -25,10 +36,13 @@ export default function Detalhes() {
 
   async function favoritarAcademia() {
     const novosFavoritos = favoritos.includes(academia.id)
-      ? favoritos.filter((item) => item !== academia.id)
+      ? favoritos.filter((favoritoId) => favoritoId !== academia.id)
       : [...favoritos, academia.id];
 
     setFavoritos(novosFavoritos);
+
+    // Salva os favoritos somente no app Mobile.
+    // Não envia nada para o backend.
     await AsyncStorage.setItem('favoritos', JSON.stringify(novosFavoritos));
   }
 
@@ -52,22 +66,34 @@ export default function Detalhes() {
         }}
       />
 
-      <View style={{
-        backgroundColor: '#111',
-        marginTop: 25,
-        borderTopLeftRadius: 35,
-        borderTopRightRadius: 35,
-        padding: 25,
-        minHeight: 600,
-        borderTopWidth: 3,
-        borderColor: '#f97316',
-      }}>
-        <View style={{
-          flexDirection: 'row',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }}>
-          <Text style={{ color: '#f97316', fontSize: 24, fontWeight: 'bold' }}>
+      <View
+        style={{
+          backgroundColor: '#111',
+          marginTop: 25,
+          borderTopLeftRadius: 35,
+          borderTopRightRadius: 35,
+          padding: 25,
+          minHeight: 600,
+          borderTopWidth: 3,
+          borderColor: '#f97316',
+        }}
+      >
+        <View
+          style={{
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <Text
+            style={{
+              color: '#f97316',
+              fontSize: 24,
+              fontWeight: 'bold',
+              flex: 1,
+              marginRight: 10,
+            }}
+          >
             {academia.nome}
           </Text>
 
@@ -82,14 +108,20 @@ export default function Detalhes() {
 
         <View style={{ flexDirection: 'row', marginTop: 30 }}>
           <Ionicons name="location-sharp" size={34} color="#f97316" />
+
           <View style={{ marginLeft: 12, flex: 1 }}>
             <Text style={{ color: '#fff', fontSize: 17, marginBottom: 5 }}>
               {academia.endereco}
             </Text>
+
             <Text style={{ color: '#fff', fontSize: 17, marginBottom: 5 }}>
               {academia.cidade}
             </Text>
-            <Text style={{ color: '#f97316', fontSize: 17 }}>{academia.cep}</Text>
+
+            <Text style={{ color: '#f97316', fontSize: 17 }}>
+              {academia.cep}
+            </Text>
+
             {academia.avaliacao ? (
               <Text style={{ color: '#fff', fontSize: 17, marginTop: 8 }}>
                 <Text style={{ color: '#aaa' }}>Avaliação:</Text>{' '}
@@ -100,31 +132,66 @@ export default function Detalhes() {
         </View>
 
         <View style={{ marginTop: 40 }}>
-          <Text style={{
-            color: '#f97316',
-            fontSize: 22,
-            fontWeight: 'bold',
-            marginBottom: 20,
-          }}>
+          <Text
+            style={{
+              color: '#f97316',
+              fontSize: 22,
+              fontWeight: 'bold',
+              marginBottom: 20,
+            }}
+          >
             Informações
           </Text>
 
-          {(academia.infos || []).map((info, index) => (
-            <View
-              key={index}
+          {academia.infos && academia.infos.length > 0 ? (
+            academia.infos.map((info, index) => (
+              <View
+                key={index}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  marginBottom: 18,
+                }}
+              >
+                <Ionicons name="checkmark-circle" size={22} color="#f97316" />
+
+                <Text
+                  style={{
+                    color: '#fff',
+                    fontSize: 17,
+                    marginLeft: 10,
+                    flex: 1,
+                  }}
+                >
+                  {info}
+                </Text>
+              </View>
+            ))
+          ) : (
+            <Text style={{ color: '#ccc', fontSize: 16 }}>
+              Nenhuma informação adicional cadastrada.
+            </Text>
+          )}
+        </View>
+
+        {academia.descricao ? (
+          <View style={{ marginTop: 30 }}>
+            <Text
               style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                marginBottom: 18,
+                color: '#f97316',
+                fontSize: 22,
+                fontWeight: 'bold',
+                marginBottom: 12,
               }}
             >
-              <Ionicons name="checkmark-circle" size={22} color="#f97316" />
-              <Text style={{ color: '#fff', fontSize: 17, marginLeft: 10, flex: 1 }}>
-                {info}
-              </Text>
-            </View>
-          ))}
-        </View>
+              Descrição
+            </Text>
+
+            <Text style={{ color: '#fff', fontSize: 16, lineHeight: 24 }}>
+              {academia.descricao}
+            </Text>
+          </View>
+        ) : null}
       </View>
     </ScrollView>
   );

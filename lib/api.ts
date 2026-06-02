@@ -20,16 +20,8 @@ export type Usuario = {
   username: string;
   nivelAcesso?: string;
   statusUsuario?: string;
+  cep?: string;
 };
-
-export function formatarNomeUsuario(usuario: Usuario | null) {
-  const primeiroNome = (usuario?.nome || usuario?.username || 'Usuário')
-    .trim()
-    .split(/\s+/)[0]
-    .toLowerCase();
-
-  return primeiroNome.charAt(0).toUpperCase() + primeiroNome.slice(1);
-}
 
 type LoginResponse = {
   message?: string;
@@ -60,7 +52,7 @@ function buscarApiUrl() {
   if (host && host !== 'localhost' && host !== '127.0.0.1') {
     return `http://${host}:8080`;
   }
- 
+
   if (Platform.OS === 'android') {
     return 'http://10.0.2.2:8080';
   }
@@ -68,7 +60,8 @@ function buscarApiUrl() {
   return 'http://localhost:8080';
 }
 
-const API_URL = buscarApiUrl();
+export const API_URL = buscarApiUrl();
+
 const REQUEST_TIMEOUT_MS = 10000;
 
 async function request<T>(rota: string, options: RequestInit = {}): Promise<T> {
@@ -107,12 +100,61 @@ async function request<T>(rota: string, options: RequestInit = {}): Promise<T> {
   return texto ? (JSON.parse(texto) as T) : (undefined as T);
 }
 
+export function formatarNomeUsuario(usuario: Usuario | null) {
+  const primeiroNome = (usuario?.nome || usuario?.username || 'Usuário')
+    .trim()
+    .split(/\s+/)[0]
+    .toLowerCase();
+
+  return primeiroNome.charAt(0).toUpperCase() + primeiroNome.slice(1);
+}
+
+export function limparCep(cep: string) {
+  return String(cep || '').replace(/\D/g, '').slice(0, 8);
+}
+
+export function formatarCep(cep?: string) {
+  const numeros = limparCep(cep || '');
+
+  if (numeros.length <= 5) {
+    return numeros;
+  }
+
+  return numeros.replace(/^(\d{5})(\d{1,3})$/, '$1-$2');
+}
+
+export function getFotoUsuarioUrl(usuarioId?: string | number) {
+  if (!usuarioId) {
+    return null;
+  }
+
+  return `${API_URL}/usuarios/${usuarioId}/foto?v=${Date.now()}`;
+}
+
 export async function login(username: string, password: string) {
   return request<LoginResponse>('/auth/login', {
     method: 'POST',
     body: JSON.stringify({
       username: username.trim(),
       password,
+    }),
+  });
+}
+
+export async function buscarUsuarioPorId(id: string | number) {
+  return request<Usuario>(`/usuarios/${id}`);
+}
+
+export async function atualizarNomeECepUsuario(
+  id: string | number,
+  nome: string,
+  cep: string
+) {
+  return request<Usuario>(`/usuarios/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      nome: nome.trim(),
+      cep: limparCep(cep),
     }),
   });
 }

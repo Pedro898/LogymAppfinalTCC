@@ -13,12 +13,17 @@ import {
 } from 'react-native';
 
 import { academiasLocais, getAcademiaImagem } from '@/constants/academias';
-import { formatarNomeUsuario, type Usuario } from '@/lib/api';
+import {
+  formatarNomeUsuario,
+  getFotoUsuarioUrl,
+  type Usuario,
+} from '@/lib/api';
 
 const categorias = ['Todos', 'Musculação', 'Crossfit', 'Ginástica', 'Lutas'];
 
 export default function Academias() {
   const router = useRouter();
+
   const [menuAberto, setMenuAberto] = useState(false);
   const [busca, setBusca] = useState('');
   const [categoriaSelecionada, setCategoriaSelecionada] = useState('Todos');
@@ -42,8 +47,16 @@ export default function Academias() {
   );
 
   const academiasFiltradas = academiasLocais.filter((academia) => {
-    const texto = `${academia.nome} ${academia.endereco} ${academia.cidade}`.toLowerCase();
+    const texto = `
+      ${academia.nome}
+      ${academia.endereco}
+      ${academia.cidade}
+      ${academia.cep}
+      ${academia.categorias?.join(' ') || ''}
+    `.toLowerCase();
+
     const correspondeBusca = texto.includes(busca.toLowerCase());
+
     const correspondeCategoria =
       categoriaSelecionada === 'Todos' ||
       academia.categorias?.includes(categoriaSelecionada);
@@ -66,6 +79,7 @@ export default function Academias() {
   }
 
   const nomeUsuario = formatarNomeUsuario(usuario);
+  const fotoUsuarioUrl = getFotoUsuarioUrl(usuario?.id);
 
   return (
     <View style={{
@@ -105,7 +119,20 @@ export default function Academias() {
             alignItems: 'center',
             marginBottom: 30,
           }}>
-            <Ionicons name="person-circle-outline" size={55} color="#fff" />
+            {fotoUsuarioUrl ? (
+              <Image
+                source={{ uri: fotoUsuarioUrl }}
+                style={{
+                  width: 55,
+                  height: 55,
+                  borderRadius: 28,
+                  backgroundColor: '#222',
+                }}
+              />
+            ) : (
+              <Ionicons name="person-circle-outline" size={55} color="#fff" />
+            )}
+
             <View style={{ marginLeft: 10 }}>
               <Text style={{
                 color: '#fff',
@@ -114,7 +141,10 @@ export default function Academias() {
               }}>
                 Olá, {nomeUsuario}
               </Text>
-              <Text style={{ color: '#ccc' }}>{usuario?.username || 'logym@app'}</Text>
+
+              <Text style={{ color: '#ccc' }}>
+                {usuario?.username || 'logym@app'}
+              </Text>
             </View>
           </View>
 
@@ -130,6 +160,7 @@ export default function Academias() {
             }}
           >
             <Ionicons name="person-outline" size={24} color="#000" />
+
             <Text style={{ fontWeight: 'bold', fontSize: 15, marginLeft: 10 }}>
               MEU PERFIL
             </Text>
@@ -147,6 +178,7 @@ export default function Academias() {
             }}
           >
             <Ionicons name="star" size={20} color="#facc15" />
+
             <Text style={{ fontWeight: 'bold', fontSize: 15, marginLeft: 10 }}>
               FAVORITOS
             </Text>
@@ -163,6 +195,7 @@ export default function Academias() {
             }}
           >
             <Ionicons name="log-out-outline" size={20} color="#000" />
+
             <Text style={{ fontWeight: 'bold', fontSize: 15, marginLeft: 10 }}>
               SAIR
             </Text>
@@ -179,8 +212,23 @@ export default function Academias() {
           onPress={() => setMenuAberto(!menuAberto)}
           style={{ flexDirection: 'row', alignItems: 'center' }}
         >
-          <Ionicons name="person-circle-outline" size={40} color="#fff" />
-          <Text style={{ color: '#fff', marginLeft: 5 }}>{nomeUsuario}</Text>
+          {fotoUsuarioUrl ? (
+            <Image
+              source={{ uri: fotoUsuarioUrl }}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: '#222',
+              }}
+            />
+          ) : (
+            <Ionicons name="person-circle-outline" size={40} color="#fff" />
+          )}
+
+          <Text style={{ color: '#fff', marginLeft: 5 }}>
+            {nomeUsuario}
+          </Text>
         </TouchableOpacity>
 
         <Image
@@ -204,6 +252,7 @@ export default function Academias() {
           paddingHorizontal: 15,
         }}>
           <Ionicons name="search" size={20} color="#888" />
+
           <TextInput
             placeholder="Localizar academias"
             placeholderTextColor="#888"
@@ -254,7 +303,10 @@ export default function Academias() {
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <TouchableOpacity
-            onPress={() => router.push({ pathname: '/detalhes', params: { id: item.id } })}
+            onPress={() => router.push({
+              pathname: '/detalhes',
+              params: { id: item.id },
+            })}
             style={{
               flexDirection: 'row',
               backgroundColor: '#0a0a0a',
@@ -263,15 +315,31 @@ export default function Academias() {
               overflow: 'hidden',
             }}
           >
-            <Image source={getAcademiaImagem(item)} style={{ width: 120, height: 120 }} />
+            <Image
+              source={getAcademiaImagem(item)}
+              style={{ width: 120, height: 120 }}
+            />
 
             <View style={{ flex: 1, padding: 10 }}>
-              <Text style={{ color: '#f97316', fontSize: 18, fontWeight: 'bold' }}>
+              <Text style={{
+                color: '#f97316',
+                fontSize: 18,
+                fontWeight: 'bold',
+              }}>
                 {item.nome}
               </Text>
-              <Text style={{ color: '#ccc', marginTop: 5 }}>{item.endereco}</Text>
-              <Text style={{ color: '#ccc' }}>{item.cidade}</Text>
-              <Text style={{ color: '#f97316', marginTop: 5 }}>{item.cep}</Text>
+
+              <Text style={{ color: '#ccc', marginTop: 5 }}>
+                {item.endereco}
+              </Text>
+
+              <Text style={{ color: '#ccc' }}>
+                {item.cidade}
+              </Text>
+
+              <Text style={{ color: '#f97316', marginTop: 5 }}>
+                {item.cep}
+              </Text>
             </View>
 
             <TouchableOpacity
