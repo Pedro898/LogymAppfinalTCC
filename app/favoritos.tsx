@@ -2,44 +2,137 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { FlatList, Image, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  FlatList,
+  Image,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
-import { academiasLocais, getAcademiaImagem } from '@/constants/academias';
+import {
+  alternarFavoritoNoBanco,
+  buscarFavoritosDoUsuario,
+  buscarPrimeiraFotoAcademia,
+  getFotoAcademiaUrl,
+  type Academia,
+  type Usuario,
+} from '@/lib/api';
+
+type AcademiaFavorita = Academia & {
+  fotoUrl?: string | null;
+};
+
+function getImagemAcademia(academia: AcademiaFavorita) {
+  if (academia.fotoUrl) {
+    return { uri: academia.fotoUrl };
+  }
+
+  return require('../assets/images/gym1.jpeg');
+}
 
 export default function Favoritos() {
   const router = useRouter();
 
-  const [favoritos, setFavoritos] = useState<string[]>([]);
+  const [usuario, setUsuario] = useState<Usuario | null>(null);
+  const [academiasFavoritas, setAcademiasFavoritas] = useState<AcademiaFavorita[]>([]);
+  const [carregando, setCarregando] = useState(false);
+  const [erro, setErro] = useState('');
 
   useFocusEffect(
     useCallback(() => {
       async function carregarFavoritos() {
-        const favoritosSalvos = await AsyncStorage.getItem('favoritos');
-        setFavoritos(favoritosSalvos ? JSON.parse(favoritosSalvos) : []);
+        try {
+          setCarregando(true);
+          setErro('');
+
+          const usuarioSalvo = await AsyncStorage.getItem('usuario');
+
+          const usuarioLogado: Usuario | null = usuarioSalvo
+            ? JSON.parse(usuarioSalvo)
+            : null;
+
+          setUsuario(usuarioLogado);
+
+          if (!usuarioLogado?.id) {
+            setAcademiasFavoritas([]);
+            setErro('Usuário não encontrado. Faça login novamente.');
+            return;
+          }
+
+          // Seu backend já retorna uma lista de academias favoritas.
+          const academiasBanco = await buscarFavoritosDoUsuario(usuarioLogado.id);
+
+          // Para cada academia favorita, buscamos a primeira foto dela.
+          const academiasComFotos = await Promise.all(
+            academiasBanco.map(async (academia) => {
+              try {
+                const primeiraFoto = await buscarPrimeiraFotoAcademia(academia.id);
+
+                return {
+                  ...academia,
+                  fotoUrl: primeiraFoto
+                    ? getFotoAcademiaUrl(primeiraFoto.id)
+                    : null,
+                };
+              } catch (error) {
+                console.error(
+                  `Erro ao buscar foto da academia favorita ${academia.id}:`,
+                  error
+                );
+
+                return {
+                  ...academia,
+                  fotoUrl: null,
+                };
+              }
+            })
+          );
+
+          setAcademiasFavoritas(academiasComFotos);
+        } catch (error) {
+          console.error(error);
+          setErro('Erro ao carregar favoritos do banco.');
+        } finally {
+          setCarregando(false);
+        }
       }
 
       carregarFavoritos();
     }, [])
   );
 
-  const academiasFavoritas = academiasLocais.filter((academia) =>
-    favoritos.includes(academia.id)
-  );
+  async function removerFavorito(academiaId: string | number) {
+    if (!usuario?.id) {
+      return;
+    }
 
-  async function removerFavorito(id: string) {
-    const novosFavoritos = favoritos.filter((favoritoId) => favoritoId !== id);
+    const idString = String(academiaId);
+    const listaAnterior = academiasFavoritas;
 
-    setFavoritos(novosFavoritos);
-    await AsyncStorage.setItem('favoritos', JSON.stringify(novosFavoritos));
+    setAcademiasFavoritas((listaAtual) =>
+      listaAtual.filter((academia) => String(academia.id) !== idString)
+    );
+
+    try {
+      await alternarFavoritoNoBanco(usuario.id, academiaId);
+    } catch (error) {
+      console.error('Erro ao remover favorito do banco:', error);
+      setAcademiasFavoritas(listaAnterior);
+      setErro('Erro ao remover favorito do banco.');
+    }
   }
 
   return (
-    <View style={{
-      flex: 1,
-      backgroundColor: '#000',
-      paddingTop: 60,
-      paddingHorizontal: 15,
-    }}>
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: '#000',
+        paddingTop: 60,
+        paddingHorizontal: 15,
+      }}
+    >
       <TouchableOpacity
         onPress={() => router.back()}
         style={{ marginBottom: 25 }}
@@ -47,29 +140,51 @@ export default function Favoritos() {
         <Ionicons name="arrow-back-outline" size={35} color="#f97316" />
       </TouchableOpacity>
 
-      <Text style={{
-        color: '#fff',
-        fontSize: 28,
-        fontWeight: 'bold',
-        marginBottom: 25,
-      }}>
+      <Text
+        style={{
+          color: '#fff',
+          fontSize: 28,
+          fontWeight: 'bold',
+          marginBottom: 25,
+        }}
+      >
         Academias Favoritas
       </Text>
 
-      {academiasFavoritas.length === 0 ? (
+      {carregando ? (
+        <View style={{ marginTop: 40 }}>
+          <ActivityIndicator color="#f97316" />
+
+          <Text
+            style={{
+              color: '#fff',
+              textAlign: 'center',
+              marginTop: 10,
+            }}
+          >
+            Carregando favoritos do banco...
+          </Text>
+        </View>
+      ) : erro ? (
+        <Text style={{ color: '#ffb4b4', fontSize: 16 }}>
+          {erro}
+        </Text>
+      ) : academiasFavoritas.length === 0 ? (
         <Text style={{ color: '#ccc', fontSize: 16 }}>
           Você ainda não favoritou nenhuma academia.
         </Text>
       ) : (
         <FlatList
           data={academiasFavoritas}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item) => String(item.id)}
           renderItem={({ item }) => (
             <TouchableOpacity
-              onPress={() => router.push({
-                pathname: '/detalhes',
-                params: { id: item.id },
-              })}
+              onPress={() =>
+                router.push({
+                  pathname: '/detalhes',
+                  params: { id: String(item.id) },
+                })
+              }
               style={{
                 flexDirection: 'row',
                 backgroundColor: '#0a0a0a',
@@ -79,30 +194,49 @@ export default function Favoritos() {
               }}
             >
               <Image
-                source={getAcademiaImagem(item)}
-                style={{ width: 120, height: 120 }}
+                source={getImagemAcademia(item)}
+                style={{
+                  width: 120,
+                  height: 120,
+                  backgroundColor: '#111',
+                }}
               />
 
               <View style={{ flex: 1, padding: 10 }}>
-                <Text style={{
-                  color: '#f97316',
-                  fontSize: 18,
-                  fontWeight: 'bold',
-                }}>
+                <Text
+                  style={{
+                    color: '#f97316',
+                    fontSize: 18,
+                    fontWeight: 'bold',
+                  }}
+                >
                   {item.nome}
                 </Text>
 
                 <Text style={{ color: '#ccc', marginTop: 5 }}>
                   {item.endereco}
+                  {item.numero ? `, ${item.numero}` : ''}
                 </Text>
 
                 <Text style={{ color: '#ccc' }}>
+                  {item.bairro ? `${item.bairro} - ` : ''}
                   {item.cidade}
+                  {item.estado ? `, ${item.estado}` : ''}
                 </Text>
 
                 <Text style={{ color: '#f97316', marginTop: 5 }}>
-                  {item.cep}
+                  CEP: {item.cep}
                 </Text>
+
+                {item.nota !== null && item.nota !== undefined ? (
+                  <Text style={{ color: '#fff', marginTop: 4 }}>
+                    {Number(item.nota).toFixed(1)} ⭐
+                  </Text>
+                ) : (
+                  <Text style={{ color: '#777', marginTop: 4 }}>
+                    Sem avaliações
+                  </Text>
+                )}
               </View>
 
               <TouchableOpacity
@@ -110,7 +244,10 @@ export default function Favoritos() {
                   event.stopPropagation();
                   removerFavorito(item.id);
                 }}
-                style={{ justifyContent: 'flex-end', padding: 10 }}
+                style={{
+                  justifyContent: 'flex-end',
+                  padding: 10,
+                }}
               >
                 <Ionicons name="star" size={26} color="#facc15" />
               </TouchableOpacity>

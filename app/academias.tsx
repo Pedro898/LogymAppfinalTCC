@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Image,
   ScrollView,
@@ -12,14 +13,37 @@ import {
   View,
 } from 'react-native';
 
-import { academiasLocais, getAcademiaImagem } from '@/constants/academias';
 import {
+  alternarFavoritoNoBanco,
+  buscarAcademias,
+  buscarAcademiasProximasDoUsuario,
+  buscarFavoritosDoUsuario,
+  buscarPrimeiraFotoAcademia,
+  extrairIdsAcademiasFavoritas,
   formatarNomeUsuario,
+  getFotoAcademiaUrl,
   getFotoUsuarioUrl,
+  normalizarCategorias,
+  type Academia,
   type Usuario,
 } from '@/lib/api';
 
 const categorias = ['Todos', 'Musculação', 'Crossfit', 'Ginástica', 'Lutas'];
+
+// Junta os dados da academia com a foto real carregada do backend.
+type AcademiaComFoto = Academia & {
+  fotoUrl?: string | null;
+};
+
+function getImagemAcademia(academia: AcademiaComFoto) {
+  // Se tiver foto no banco, usa foto real.
+  if (academia.fotoUrl) {
+    return { uri: academia.fotoUrl };
+  }
+
+  // Se não tiver foto cadastrada, usa imagem padrão.
+  return require('../assets/images/gym1.jpeg');
+}
 
 export default function Academias() {
   const router = useRouter();
@@ -27,50 +51,137 @@ export default function Academias() {
   const [menuAberto, setMenuAberto] = useState(false);
   const [busca, setBusca] = useState('');
   const [categoriaSelecionada, setCategoriaSelecionada] = useState('Todos');
+
+  // Agora favoritos representam IDs vindos do banco.
   const [favoritos, setFavoritos] = useState<string[]>([]);
+
   const [usuario, setUsuario] = useState<Usuario | null>(null);
+  const [academias, setAcademias] = useState<AcademiaComFoto[]>([]);
+  const [carregandoAcademias, setCarregandoAcademias] = useState(false);
+  const [erroAcademias, setErroAcademias] = useState('');
 
   useFocusEffect(
     useCallback(() => {
-      async function carregarDadosLocais() {
-        const [favoritosSalvos, usuarioSalvo] = await Promise.all([
-          AsyncStorage.getItem('favoritos'),
-          AsyncStorage.getItem('usuario'),
-        ]);
+      async function carregarDados() {
+        const usuarioSalvo = await AsyncStorage.getItem('usuario');
 
-        setFavoritos(favoritosSalvos ? JSON.parse(favoritosSalvos) : []);
-        setUsuario(usuarioSalvo ? JSON.parse(usuarioSalvo) : null);
+        const usuarioLogado: Usuario | null = usuarioSalvo
+          ? JSON.parse(usuarioSalvo)
+          : null;
+
+        setUsuario(usuarioLogado);
+
+        try {
+          setCarregandoAcademias(true);
+          setErroAcademias('');
+
+          // Busca os favoritos reais do banco.
+          if (usuarioLogado?.id) {
+            try {
+              const favoritosBanco = await buscarFavoritosDoUsuario(usuarioLogado.id);
+              setFavoritos(extrairIdsAcademiasFavoritas(favoritosBanco));
+            } catch (error) {
+              console.error('Erro ao buscar favoritos do banco:', error);
+              setFavoritos([]);
+            }
+          } else {
+            setFavoritos([]);
+          }
+
+          // Busca as academias reais do banco.
+           // Se tiver usuário logado, usa a mesma rota de proximidade do backend/Web.
+         // Se não tiver usuário logado, busca todas as academias ativas.
+        const lista = usuarioLogado?.id
+        ? await buscarAcademiasProximasDoUsuario(usuarioLogado.id)
+        : await buscarAcademias();
+
+          // Para cada academia, busca a primeira foto cadastrada.
+          const listaComFotos = await Promise.all(
+            lista.map(async (academia) => {
+              try {
+                const primeiraFoto = await buscarPrimeiraFotoAcademia(academia.id);
+
+                return {
+                  ...academia,
+                  fotoUrl: primeiraFoto
+                    ? getFotoAcademiaUrl(primeiraFoto.id)
+                    : null,
+                };
+              } catch (error) {
+                console.error(`Erro ao buscar foto da academia ${academia.id}:`, error);
+
+                return {
+                  ...academia,
+                  fotoUrl: null,
+                };
+              }
+            })
+          );
+
+          setAcademias(listaComFotos);
+        } catch (error) {
+          console.error(error);
+          setErroAcademias('Não foi possível carregar as academias do banco.');
+        } finally {
+          setCarregandoAcademias(false);
+        }
       }
 
-      carregarDadosLocais();
+      carregarDados();
     }, [])
   );
 
-  const academiasFiltradas = academiasLocais.filter((academia) => {
+  const academiasFiltradas = academias.filter((academia) => {
+    const categoriasAcademia = normalizarCategorias(academia.categorias);
+
     const texto = `
       ${academia.nome}
       ${academia.endereco}
+      ${academia.numero || ''}
+      ${academia.bairro || ''}
       ${academia.cidade}
+      ${academia.estado || ''}
       ${academia.cep}
-      ${academia.categorias?.join(' ') || ''}
+      ${academia.descricao || ''}
+      ${academia.facilidades || ''}
+      ${categoriasAcademia.join(' ')}
     `.toLowerCase();
 
     const correspondeBusca = texto.includes(busca.toLowerCase());
 
     const correspondeCategoria =
       categoriaSelecionada === 'Todos' ||
-      academia.categorias?.includes(categoriaSelecionada);
+      categoriasAcademia.includes(categoriaSelecionada);
 
     return correspondeBusca && correspondeCategoria;
   });
 
-  async function alternarFavorito(id: string) {
-    const novosFavoritos = favoritos.includes(id)
-      ? favoritos.filter((favoritoId) => favoritoId !== id)
-      : [...favoritos, id];
+  async function alternarFavorito(id: string | number) {
+    if (!usuario?.id) {
+      console.log('Usuário não encontrado para favoritar.');
+      return;
+    }
+
+    const idString = String(id);
+
+    // Atualiza visualmente antes do backend responder.
+    const favoritosAnteriores = favoritos;
+
+    const novosFavoritos = favoritos.includes(idString)
+      ? favoritos.filter((favoritoId) => favoritoId !== idString)
+      : [...favoritos, idString];
 
     setFavoritos(novosFavoritos);
-    await AsyncStorage.setItem('favoritos', JSON.stringify(novosFavoritos));
+
+    try {
+      // Salva a alteração no banco.
+      await alternarFavoritoNoBanco(usuario.id, id);
+    } catch (error) {
+      console.error('Erro ao atualizar favorito no banco:', error);
+
+      // Se falhar, desfaz a mudança visual.
+      setFavoritos(favoritosAnteriores);
+    }
   }
 
   async function sair() {
@@ -82,26 +193,30 @@ export default function Academias() {
   const fotoUsuarioUrl = getFotoUsuarioUrl(usuario?.id);
 
   return (
-    <View style={{
-      flex: 1,
-      backgroundColor: '#000',
-      paddingTop: 20,
-      paddingHorizontal: 15,
-    }}>
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: '#000',
+        paddingTop: 20,
+        paddingHorizontal: 15,
+      }}
+    >
       {menuAberto && (
-        <View style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: 260,
-          height: '100%',
-          backgroundColor: '#111111',
-          borderRightWidth: 2,
-          borderRightColor: '#f97316',
-          zIndex: 999,
-          paddingTop: 80,
-          paddingHorizontal: 15,
-        }}>
+        <View
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: 260,
+            height: '100%',
+            backgroundColor: '#111111',
+            borderRightWidth: 2,
+            borderRightColor: '#f97316',
+            zIndex: 999,
+            paddingTop: 80,
+            paddingHorizontal: 15,
+          }}
+        >
           <TouchableOpacity
             onPress={() => setMenuAberto(false)}
             style={{
@@ -114,11 +229,13 @@ export default function Academias() {
             <Ionicons name="close-outline" size={35} color="white" />
           </TouchableOpacity>
 
-          <View style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            marginBottom: 30,
-          }}>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              marginBottom: 30,
+            }}
+          >
             {fotoUsuarioUrl ? (
               <Image
                 source={{ uri: fotoUsuarioUrl }}
@@ -134,11 +251,13 @@ export default function Academias() {
             )}
 
             <View style={{ marginLeft: 10 }}>
-              <Text style={{
-                color: '#fff',
-                fontWeight: 'bold',
-                fontSize: 20,
-              }}>
+              <Text
+                style={{
+                  color: '#fff',
+                  fontWeight: 'bold',
+                  fontSize: 20,
+                }}
+              >
                 Olá, {nomeUsuario}
               </Text>
 
@@ -203,11 +322,13 @@ export default function Academias() {
         </View>
       )}
 
-      <View style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: -40,
-      }}>
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          marginBottom: -40,
+        }}
+      >
         <TouchableOpacity
           onPress={() => setMenuAberto(!menuAberto)}
           style={{ flexDirection: 'row', alignItems: 'center' }}
@@ -226,9 +347,7 @@ export default function Academias() {
             <Ionicons name="person-circle-outline" size={40} color="#fff" />
           )}
 
-          <Text style={{ color: '#fff', marginLeft: 5 }}>
-            {nomeUsuario}
-          </Text>
+          <Text style={{ color: '#fff', marginLeft: 5 }}>{nomeUsuario}</Text>
         </TouchableOpacity>
 
         <Image
@@ -244,13 +363,15 @@ export default function Academias() {
       </View>
 
       <View style={{ marginBottom: 15 }}>
-        <View style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          backgroundColor: '#111',
-          borderRadius: 20,
-          paddingHorizontal: 15,
-        }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: '#111',
+            borderRadius: 20,
+            paddingHorizontal: 15,
+          }}
+        >
           <Ionicons name="search" size={20} color="#888" />
 
           <TextInput
@@ -286,10 +407,12 @@ export default function Academias() {
                   paddingVertical: 8,
                 }}
               >
-                <Text style={{
-                  color: selecionada ? '#000' : '#fff',
-                  fontWeight: 'bold',
-                }}>
+                <Text
+                  style={{
+                    color: selecionada ? '#000' : '#fff',
+                    fontWeight: 'bold',
+                  }}
+                >
                   {categoria}
                 </Text>
               </TouchableOpacity>
@@ -298,66 +421,112 @@ export default function Academias() {
         </ScrollView>
       </View>
 
-      <FlatList
-        data={academiasFiltradas}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            onPress={() => router.push({
-              pathname: '/detalhes',
-              params: { id: item.id },
-            })}
-            style={{
-              flexDirection: 'row',
-              backgroundColor: '#0a0a0a',
-              borderRadius: 20,
-              marginBottom: 15,
-              overflow: 'hidden',
-            }}
-          >
-            <Image
-              source={getAcademiaImagem(item)}
-              style={{ width: 120, height: 120 }}
-            />
+      {carregandoAcademias ? (
+        <View style={{ marginTop: 40 }}>
+          <ActivityIndicator color="#f97316" />
 
-            <View style={{ flex: 1, padding: 10 }}>
-              <Text style={{
-                color: '#f97316',
-                fontSize: 18,
-                fontWeight: 'bold',
-              }}>
-                {item.nome}
-              </Text>
+          <Text style={{ color: '#fff', textAlign: 'center', marginTop: 10 }}>
+            Carregando academias do banco...
+          </Text>
+        </View>
+      ) : erroAcademias ? (
+        <View style={{ marginTop: 40 }}>
+          <Text style={{ color: '#ffb4b4', textAlign: 'center' }}>
+            {erroAcademias}
+          </Text>
 
-              <Text style={{ color: '#ccc', marginTop: 5 }}>
-                {item.endereco}
-              </Text>
-
-              <Text style={{ color: '#ccc' }}>
-                {item.cidade}
-              </Text>
-
-              <Text style={{ color: '#f97316', marginTop: 5 }}>
-                {item.cep}
-              </Text>
-            </View>
-
+          <Text style={{ color: '#ccc', textAlign: 'center', marginTop: 8 }}>
+            Verifique se o backend está rodando e se existe academia ativa no
+            banco.
+          </Text>
+        </View>
+      ) : academiasFiltradas.length === 0 ? (
+        <View style={{ marginTop: 40 }}>
+          <Text style={{ color: '#ccc', textAlign: 'center' }}>
+            Nenhuma academia encontrada.
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={academiasFiltradas}
+          keyExtractor={(item) => String(item.id)}
+          renderItem={({ item }) => (
             <TouchableOpacity
-              onPress={(event) => {
-                event.stopPropagation();
-                alternarFavorito(item.id);
+              onPress={() =>
+                router.push({
+                  pathname: '/detalhes',
+                  params: { id: String(item.id) },
+                })
+              }
+              style={{
+                flexDirection: 'row',
+                backgroundColor: '#0a0a0a',
+                borderRadius: 20,
+                marginBottom: 15,
+                overflow: 'hidden',
               }}
-              style={{ justifyContent: 'flex-end', padding: 10 }}
             >
-              <Ionicons
-                name={favoritos.includes(item.id) ? 'star' : 'star-outline'}
-                size={24}
-                color="#facc15"
+              <Image
+                source={getImagemAcademia(item)}
+                style={{ width: 120, height: 120 }}
               />
+
+              <View style={{ flex: 1, padding: 10 }}>
+                <Text
+                  style={{
+                    color: '#f97316',
+                    fontSize: 18,
+                    fontWeight: 'bold',
+                  }}
+                >
+                  {item.nome}
+                </Text>
+
+                <Text style={{ color: '#ccc', marginTop: 5 }}>
+                  {item.endereco}
+                  {item.numero ? `, ${item.numero}` : ''}
+                </Text>
+
+                <Text style={{ color: '#ccc' }}>
+                  {item.bairro ? `${item.bairro} - ` : ''}
+                  {item.cidade}
+                  {item.estado ? `, ${item.estado}` : ''}
+                </Text>
+
+                <Text style={{ color: '#f97316', marginTop: 5 }}>
+                  CEP: {item.cep}
+                </Text>
+
+                {item.nota !== null && item.nota !== undefined ? (
+                  <Text style={{ color: '#fff', marginTop: 4 }}>
+                    {Number(item.nota).toFixed(1)} ⭐
+                  </Text>
+                ) : (
+                  <Text style={{ color: '#777', marginTop: 4 }}>
+                    Sem avaliações
+                  </Text>
+                )}
+              </View>
+
+              <TouchableOpacity
+                onPress={(event) => {
+                  event.stopPropagation();
+                  alternarFavorito(item.id);
+                }}
+                style={{ justifyContent: 'flex-end', padding: 10 }}
+              >
+                <Ionicons
+                  name={
+                    favoritos.includes(String(item.id)) ? 'star' : 'star-outline'
+                  }
+                  size={24}
+                  color="#facc15"
+                />
+              </TouchableOpacity>
             </TouchableOpacity>
-          </TouchableOpacity>
-        )}
-      />
+          )}
+        />
+      )}
     </View>
   );
 }
