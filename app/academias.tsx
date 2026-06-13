@@ -24,11 +24,29 @@ import {
   getFotoAcademiaUrl,
   getFotoUsuarioUrl,
   normalizarCategorias,
+  normalizarFacilidades,
   type Academia,
   type Usuario,
 } from '@/lib/api';
 
-const categorias = ['Todos', 'Musculação', 'Crossfit', 'Ginástica', 'Lutas'];
+// Mesmos filtros rápidos usados no Web.
+// Eles misturam categorias e facilidades.
+const filtrosRapidos = [
+  'Musculação',
+  'Crossfit',
+  'Pilates',
+  'Yoga',
+  'Funcional',
+  'Natação',
+  'Lutas',
+  'Dança',
+  'Spinning',
+  'Wi-Fi',
+  'Estacionamento',
+  'Acessibilidade',
+  'Ar Condicionado',
+  'Vestiário',
+];
 
 // Junta os dados da academia com a foto real carregada do backend.
 type AcademiaComFoto = Academia & {
@@ -50,9 +68,11 @@ export default function Academias() {
 
   const [menuAberto, setMenuAberto] = useState(false);
   const [busca, setBusca] = useState('');
-  const [categoriaSelecionada, setCategoriaSelecionada] = useState('Todos');
 
-  // Agora favoritos representam IDs vindos do banco.
+  // Agora o Mobile permite selecionar vários filtros, igual ao Web.
+  const [filtrosSelecionados, setFiltrosSelecionados] = useState<string[]>([]);
+
+  // Favoritos representam IDs vindos do banco.
   const [favoritos, setFavoritos] = useState<string[]>([]);
 
   const [usuario, setUsuario] = useState<Usuario | null>(null);
@@ -78,8 +98,9 @@ export default function Academias() {
           // Busca os favoritos reais do banco.
           if (usuarioLogado?.id) {
             try {
-              const favoritosBanco = await buscarFavoritosDoUsuario(usuarioLogado.id);
-              setFavoritos(extrairIdsAcademiasFavoritas(favoritosBanco));
+              const academiasFavoritas = await buscarFavoritosDoUsuario(usuarioLogado.id);
+
+              setFavoritos(extrairIdsAcademiasFavoritas(academiasFavoritas));
             } catch (error) {
               console.error('Erro ao buscar favoritos do banco:', error);
               setFavoritos([]);
@@ -89,11 +110,11 @@ export default function Academias() {
           }
 
           // Busca as academias reais do banco.
-           // Se tiver usuário logado, usa a mesma rota de proximidade do backend/Web.
-         // Se não tiver usuário logado, busca todas as academias ativas.
-        const lista = usuarioLogado?.id
-        ? await buscarAcademiasProximasDoUsuario(usuarioLogado.id)
-        : await buscarAcademias();
+          // Se tiver usuário logado, usa a mesma rota de proximidade do backend/Web.
+          // Se não tiver usuário logado, busca todas as academias ativas.
+          const lista = usuarioLogado?.id
+            ? await buscarAcademiasProximasDoUsuario(usuarioLogado.id)
+            : await buscarAcademias();
 
           // Para cada academia, busca a primeira foto cadastrada.
           const listaComFotos = await Promise.all(
@@ -131,8 +152,24 @@ export default function Academias() {
     }, [])
   );
 
+  function alternarFiltro(filtro: string) {
+    setFiltrosSelecionados((listaAtual) => {
+      if (listaAtual.includes(filtro)) {
+        return listaAtual.filter((item) => item !== filtro);
+      }
+
+      return [...listaAtual, filtro];
+    });
+  }
+
+  function limparFiltros() {
+    setFiltrosSelecionados([]);
+    setBusca('');
+  }
+
   const academiasFiltradas = academias.filter((academia) => {
     const categoriasAcademia = normalizarCategorias(academia.categorias);
+    const facilidadesAcademia = normalizarFacilidades(academia.facilidades);
 
     const texto = `
       ${academia.nome}
@@ -143,17 +180,24 @@ export default function Academias() {
       ${academia.estado || ''}
       ${academia.cep}
       ${academia.descricao || ''}
+      ${academia.categorias || ''}
       ${academia.facilidades || ''}
-      ${categoriasAcademia.join(' ')}
     `.toLowerCase();
 
     const correspondeBusca = texto.includes(busca.toLowerCase());
 
-    const correspondeCategoria =
-      categoriaSelecionada === 'Todos' ||
-      categoriasAcademia.includes(categoriaSelecionada);
+    // Cada filtro selecionado precisa existir em categorias OU facilidades.
+    // Exemplo:
+    // Musculação + Wi-Fi + Estacionamento
+    // A academia precisa conter todos esses filtros.
+    const correspondeFiltros = filtrosSelecionados.every((filtro) => {
+      return (
+        categoriasAcademia.includes(filtro) ||
+        facilidadesAcademia.includes(filtro)
+      );
+    });
 
-    return correspondeBusca && correspondeCategoria;
+    return correspondeBusca && correspondeFiltros;
   });
 
   async function alternarFavorito(id: string | number) {
@@ -383,42 +427,108 @@ export default function Academias() {
           />
         </View>
 
+        <View
+          style={{
+            marginTop: 12,
+            marginBottom: 8,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <Text
+            style={{
+              color: '#fff',
+              fontWeight: 'bold',
+              fontSize: 16,
+            }}
+          >
+            Filtros rápidos
+          </Text>
+
+          {(filtrosSelecionados.length > 0 || busca.length > 0) && (
+            <TouchableOpacity onPress={limparFiltros}>
+              <Text
+                style={{
+                  color: '#f97316',
+                  fontWeight: 'bold',
+                }}
+              >
+                Limpar
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{
             gap: 8,
-            paddingTop: 12,
+            paddingBottom: 8,
           }}
         >
-          {categorias.map((categoria) => {
-            const selecionada = categoriaSelecionada === categoria;
+          {filtrosRapidos.map((filtro) => {
+            const selecionado = filtrosSelecionados.includes(filtro);
 
             return (
               <TouchableOpacity
-                key={categoria}
-                onPress={() => setCategoriaSelecionada(categoria)}
+                key={filtro}
+                onPress={() => alternarFiltro(filtro)}
                 style={{
-                  backgroundColor: selecionada ? '#f97316' : '#111',
-                  borderColor: selecionada ? '#f97316' : '#333',
+                  backgroundColor: selecionado ? '#f97316' : '#111',
+                  borderColor: selecionado ? '#f97316' : '#333',
                   borderRadius: 18,
                   borderWidth: 1,
                   paddingHorizontal: 14,
                   paddingVertical: 8,
+                  flexDirection: 'row',
+                  alignItems: 'center',
                 }}
               >
+                {selecionado ? (
+                  <Ionicons
+                    name="checkmark"
+                    size={15}
+                    color="#000"
+                    style={{ marginRight: 4 }}
+                  />
+                ) : null}
+
                 <Text
                   style={{
-                    color: selecionada ? '#000' : '#fff',
+                    color: selecionado ? '#000' : '#fff',
                     fontWeight: 'bold',
                   }}
                 >
-                  {categoria}
+                  {filtro}
                 </Text>
               </TouchableOpacity>
             );
           })}
         </ScrollView>
+
+        <Text
+          style={{
+            color: '#ccc',
+            fontSize: 14,
+            marginTop: 2,
+          }}
+        >
+          Resultado: {academiasFiltradas.length} academia(s)
+        </Text>
+
+        {filtrosSelecionados.length > 0 ? (
+          <Text
+            style={{
+              color: '#f97316',
+              fontSize: 13,
+              marginTop: 4,
+            }}
+          >
+            Filtros: {filtrosSelecionados.join(' + ')}
+          </Text>
+        ) : null}
       </View>
 
       {carregandoAcademias ? (
@@ -443,7 +553,7 @@ export default function Academias() {
       ) : academiasFiltradas.length === 0 ? (
         <View style={{ marginTop: 40 }}>
           <Text style={{ color: '#ccc', textAlign: 'center' }}>
-            Nenhuma academia encontrada.
+            Nenhuma academia encontrada com esses filtros.
           </Text>
         </View>
       ) : (
