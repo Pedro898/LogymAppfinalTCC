@@ -11,6 +11,8 @@ import {
   View,
 } from 'react-native';
 
+import BottomTabBar from '../components/BottomTabBar';
+
 import {
   alternarFavoritoNoBanco,
   buscarFavoritosDoUsuario,
@@ -61,10 +63,8 @@ export default function Favoritos() {
             return;
           }
 
-          // Seu backend já retorna uma lista de academias favoritas.
           const academiasBanco = await buscarFavoritosDoUsuario(usuarioLogado.id);
 
-          // Para cada academia favorita, buscamos a primeira foto dela.
           const academiasComFotos = await Promise.all(
             academiasBanco.map(async (academia) => {
               try {
@@ -131,10 +131,11 @@ export default function Favoritos() {
         backgroundColor: '#000',
         paddingTop: 60,
         paddingHorizontal: 15,
+        paddingBottom: 86,
       }}
     >
       <TouchableOpacity
-        onPress={() => router.back()}
+        onPress={() => router.replace('/academias')}
         style={{ marginBottom: 25 }}
       >
         <Ionicons name="arrow-back-outline" size={35} color="#f97316" />
@@ -177,6 +178,7 @@ export default function Favoritos() {
         <FlatList
           data={academiasFavoritas}
           keyExtractor={(item) => String(item.id)}
+          contentContainerStyle={{ paddingBottom: 18 }}
           renderItem={({ item }) => (
             <TouchableOpacity
               onPress={() =>
@@ -255,6 +257,8 @@ export default function Favoritos() {
           )}
         />
       )}
+
+      <BottomTabBar />
     </View>
   );
 }

@@ -51,19 +51,25 @@ export type FotoAcademia = {
   statusFotoAcademia?: string;
 };
 
+// Remove barra final da URL, caso venha algo como http://localhost:8080/
 function removerBarraFinal(url: string) {
   return url.replace(/\/$/, '');
 }
 
+// Descobre automaticamente qual URL usar para conectar no backend.
 function buscarApiUrl() {
+  // Permite configurar manualmente a URL da API pelo .env:
+  // EXPO_PUBLIC_API_URL=http://SEU_IP:8080
   if (process.env.EXPO_PUBLIC_API_URL) {
     return removerBarraFinal(process.env.EXPO_PUBLIC_API_URL);
   }
 
+  // Quando roda no navegador, localhost aponta para o próprio computador.
   if (Platform.OS === 'web') {
     return 'http://localhost:8080';
   }
 
+  // Quando roda no Expo Go, tenta descobrir o IP da máquina que está rodando o Expo.
   const hostUri =
     Constants.expoConfig?.hostUri ||
     (Constants as any).manifest?.debuggerHost ||
@@ -75,6 +81,7 @@ function buscarApiUrl() {
     return `http://${host}:8080`;
   }
 
+  // Emulador Android usa esse endereço especial para acessar o localhost do computador.
   if (Platform.OS === 'android') {
     return 'http://10.0.2.2:8080';
   }
@@ -86,6 +93,7 @@ export const API_URL = buscarApiUrl();
 
 const REQUEST_TIMEOUT_MS = 10000;
 
+// Função base para chamadas JSON ao backend.
 async function request<T>(rota: string, options: RequestInit = {}): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -123,6 +131,7 @@ async function request<T>(rota: string, options: RequestInit = {}): Promise<T> {
   return texto ? (JSON.parse(texto) as T) : (undefined as T);
 }
 
+// Mostra apenas o primeiro nome do usuário na interface.
 export function formatarNomeUsuario(usuario: Usuario | null) {
   const primeiroNome = (usuario?.nome || usuario?.username || 'Usuário')
     .trim()
@@ -132,10 +141,12 @@ export function formatarNomeUsuario(usuario: Usuario | null) {
   return primeiroNome.charAt(0).toUpperCase() + primeiroNome.slice(1);
 }
 
+// Remove tudo que não for número e limita o CEP a 8 dígitos.
 export function limparCep(cep: string) {
   return String(cep || '').replace(/\D/g, '').slice(0, 8);
 }
 
+// Formata CEP no padrão 00000-000.
 export function formatarCep(cep?: string) {
   const numeros = limparCep(cep || '');
 
@@ -146,15 +157,17 @@ export function formatarCep(cep?: string) {
   return numeros.replace(/^(\d{5})(\d{1,3})$/, '$1-$2');
 }
 
+// Monta a URL da foto do usuário.
+// Date.now evita cache antigo quando a foto é alterada.
 export function getFotoUsuarioUrl(usuarioId?: string | number) {
   if (!usuarioId) {
     return null;
   }
 
-  // Date.now evita cache antigo quando a foto é alterada.
   return `${API_URL}/usuarios/${usuarioId}/foto?v=${Date.now()}`;
 }
 
+// Transforma a string "Musculação, Yoga" em ["Musculação", "Yoga"].
 export function normalizarCategorias(categorias?: string) {
   return String(categorias || '')
     .split(',')
@@ -162,6 +175,7 @@ export function normalizarCategorias(categorias?: string) {
     .filter(Boolean);
 }
 
+// Transforma a string "Wi-Fi, Estacionamento" em ["Wi-Fi", "Estacionamento"].
 export function normalizarFacilidades(facilidades?: string) {
   return String(facilidades || '')
     .split(',')
@@ -199,6 +213,9 @@ export async function atualizarNomeECepUsuario(
   });
 }
 
+// Atualiza a foto de perfil do usuário.
+// Essa função envia a imagem para:
+// PUT /usuarios/{id}/foto
 export async function atualizarFotoPerfil(
   id: string | number,
   imageUri: string,
@@ -207,12 +224,23 @@ export async function atualizarFotoPerfil(
   const formData = new FormData();
 
   const extensao = mimeType.includes('png') ? 'png' : 'jpg';
+  const nomeArquivo = `foto-perfil-${id}.${extensao}`;
 
-  formData.append('file', {
-    uri: imageUri,
-    name: `foto-perfil-${id}.${extensao}`,
-    type: mimeType,
-  } as any);
+  // No Expo Web/navegador, precisamos converter a imagem para Blob.
+  // O navegador não aceita o objeto { uri, name, type } do mesmo jeito que o celular.
+  if (Platform.OS === 'web') {
+    const imagemResposta = await fetch(imageUri);
+    const imagemBlob = await imagemResposta.blob();
+
+    formData.append('file', imagemBlob, nomeArquivo);
+  } else {
+    // No Android/iOS, o React Native aceita enviar o arquivo usando uri/name/type.
+    formData.append('file', {
+      uri: imageUri,
+      name: nomeArquivo,
+      type: mimeType,
+    } as any);
+  }
 
   const resposta = await fetch(`${API_URL}/usuarios/${id}/foto`, {
     method: 'PUT',
@@ -220,14 +248,18 @@ export async function atualizarFotoPerfil(
     credentials: 'include',
     headers: {
       Accept: 'application/json',
+
       // Não colocar Content-Type aqui.
-      // O fetch monta o multipart/form-data automaticamente.
+      // O fetch monta automaticamente o multipart/form-data com boundary.
     },
   });
 
   if (!resposta.ok) {
     const mensagem = await resposta.text();
-    throw new Error(mensagem || 'Erro ao atualizar foto de perfil.');
+
+    throw new Error(
+      mensagem || `Erro ao atualizar foto de perfil. Status: ${resposta.status}`
+    );
   }
 }
 
