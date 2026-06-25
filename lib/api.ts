@@ -226,15 +226,19 @@ export async function atualizarFotoPerfil(
   const extensao = mimeType.includes('png') ? 'png' : 'jpg';
   const nomeArquivo = `foto-perfil-${id}.${extensao}`;
 
+  // IMPORTANTE:
+  // O nome do campo precisa ser "file",
+  // porque no backend vamos usar:
+  // @RequestParam("file") MultipartFile file
+
   // No Expo Web/navegador, precisamos converter a imagem para Blob.
-  // O navegador não aceita o objeto { uri, name, type } do mesmo jeito que o celular.
   if (Platform.OS === 'web') {
     const imagemResposta = await fetch(imageUri);
     const imagemBlob = await imagemResposta.blob();
 
     formData.append('file', imagemBlob, nomeArquivo);
   } else {
-    // No Android/iOS, o React Native aceita enviar o arquivo usando uri/name/type.
+    // No Android/iOS, o React Native aceita enviar arquivo usando uri/name/type.
     formData.append('file', {
       uri: imageUri,
       name: nomeArquivo,
