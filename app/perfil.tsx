@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -7,6 +8,7 @@ import {
   ActivityIndicator,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   ScrollView,
   Text,
@@ -16,10 +18,12 @@ import {
 } from 'react-native';
 
 import BottomTabBar from '../components/BottomTabBar';
+import UserAvatarPlaceholder from '../components/UserAvatarPlaceholder';
 
 import {
   atualizarFotoPerfil,
   atualizarNomeECepUsuario,
+  buscarEnderecoPorCep,
   buscarUsuarioPorId,
   formatarCep,
   formatarNomeUsuario,
@@ -31,34 +35,130 @@ import {
 export default function Perfil() {
   const router = useRouter();
 
-  // Guarda os dados do usuário logado.
   const [usuario, setUsuario] = useState<Usuario | null>(null);
 
-  // Campos editáveis do perfil.
   const [nome, setNome] = useState('');
   const [cep, setCep] = useState('');
 
-  // Controla se Nome/CEP estão em modo edição.
+  const [endereco, setEndereco] = useState('');
+  const [bairro, setBairro] = useState('');
+  const [cidade, setCidade] = useState('');
+  const [estado, setEstado] = useState('');
+
+  const [cepValido, setCepValido] = useState(false);
   const [editando, setEditando] = useState(false);
 
-  // Estados de carregamento.
   const [carregando, setCarregando] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [salvandoFoto, setSalvandoFoto] = useState(false);
+  const [buscandoCep, setBuscandoCep] = useState(false);
 
-  // Mensagem exibida na tela.
   const [mensagem, setMensagem] = useState('');
 
-  // Usado para forçar atualização da foto após trocar.
-  // Isso evita que o app mostre imagem antiga em cache.
   const [fotoVersao, setFotoVersao] = useState(Date.now());
+
+  // Quando a foto não existe no banco, a URL ainda é criada por causa do usuario.id.
+  // Então usamos esse controle para trocar para o bonequinho quando a imagem falhar.
+  const [fotoPerfilErro, setFotoPerfilErro] = useState(false);
 
   const nomeUsuario = formatarNomeUsuario(usuario);
 
-  // URL da foto do usuário.
-  // O &mobile muda quando a foto é alterada, forçando recarregamento.
+  const ehUsuarioComum =
+    usuario?.nivelAcesso === 'USER' || !usuario?.nivelAcesso;
+
+  const deveMostrarCamposEndereco =
+    ehUsuarioComum &&
+    limparCep(cep).length === 8 &&
+    (cepValido || !!endereco || !!bairro || !!cidade || !!estado || buscandoCep);
+
   const fotoUrlBase = getFotoUsuarioUrl(usuario?.id);
-  const fotoUrl = fotoUrlBase ? `${fotoUrlBase}&mobile=${fotoVersao}` : null;
+  const fotoUrl = fotoUrlBase ? `${fotoUrlBase}?mobile=${fotoVersao}` : null;
+  const deveMostrarFotoPerfil = fotoUrl && !fotoPerfilErro;
+
+  function limparEnderecoViaCep() {
+    setEndereco('');
+    setBairro('');
+    setCidade('');
+    setEstado('');
+    setCepValido(false);
+  }
+
+  function buscarWebUrl() {
+    if (process.env.EXPO_PUBLIC_WEB_URL) {
+      return process.env.EXPO_PUBLIC_WEB_URL.replace(/\/$/, '');
+    }
+
+    if (Platform.OS === 'web') {
+      return 'http://localhost:5173';
+    }
+
+    const hostUri =
+      Constants.expoConfig?.hostUri ||
+      (Constants as any).manifest?.debuggerHost ||
+      (Constants as any).manifest2?.extra?.expoClient?.hostUri;
+
+    const host = hostUri?.split(':')[0];
+
+    if (host && host !== 'localhost' && host !== '127.0.0.1') {
+      return `http://${host}:5173`;
+    }
+
+    return 'http://localhost:5173';
+  }
+
+  function abrirAlterarSenhaWeb() {
+    const webUrl = buscarWebUrl();
+    const redirectFormatado = encodeURIComponent('/profile');
+
+    Linking.openURL(`${webUrl}/login?redirect=${redirectFormatado}`);
+  }
+
+  async function carregarEnderecoPeloCep(
+    cepInformado: string,
+    mostrarMensagem = true
+  ) {
+    const cepLimpo = limparCep(cepInformado);
+
+    if (cepLimpo.length !== 8) {
+      limparEnderecoViaCep();
+      return false;
+    }
+
+    try {
+      setBuscandoCep(true);
+
+      const enderecoEncontrado = await buscarEnderecoPorCep(cepLimpo);
+
+      setEndereco(enderecoEncontrado.endereco);
+      setBairro(enderecoEncontrado.bairro);
+      setCidade(enderecoEncontrado.cidade);
+      setEstado(enderecoEncontrado.estado);
+      setCep(formatarCep(enderecoEncontrado.cep));
+      setCepValido(true);
+
+      if (mostrarMensagem) {
+        setMensagem('Endereço encontrado pelo CEP.');
+      }
+
+      return true;
+    } catch (error) {
+      console.error(error);
+
+      limparEnderecoViaCep();
+
+      if (mostrarMensagem) {
+        if (error instanceof Error) {
+          setMensagem(error.message);
+        } else {
+          setMensagem('CEP inválido ou não encontrado.');
+        }
+      }
+
+      return false;
+    } finally {
+      setBuscandoCep(false);
+    }
+  }
 
   useFocusEffect(
     useCallback(() => {
@@ -71,6 +171,8 @@ export default function Perfil() {
           setUsuario(null);
           setNome('');
           setCep('');
+          limparEnderecoViaCep();
+          setFotoPerfilErro(true);
           return;
         }
 
@@ -80,24 +182,42 @@ export default function Perfil() {
         setNome(usuarioLocal.nome || '');
         setCep(formatarCep(usuarioLocal.cep || ''));
 
+        if (
+          (usuarioLocal.nivelAcesso === 'USER' || !usuarioLocal.nivelAcesso) &&
+          usuarioLocal.cep
+        ) {
+          await carregarEnderecoPeloCep(usuarioLocal.cep, false);
+        } else {
+          limparEnderecoViaCep();
+        }
+
         try {
           setCarregando(true);
 
-          // Busca o usuário atualizado no banco.
           const usuarioBanco = await buscarUsuarioPorId(usuarioLocal.id);
 
-          // Atualiza o AsyncStorage para manter o app sincronizado.
           await AsyncStorage.setItem('usuario', JSON.stringify(usuarioBanco));
 
           setUsuario(usuarioBanco);
           setNome(usuarioBanco.nome || '');
           setCep(formatarCep(usuarioBanco.cep || ''));
 
-          // Atualiza a versão da foto quando entra na tela.
+          if (
+            (usuarioBanco.nivelAcesso === 'USER' ||
+              !usuarioBanco.nivelAcesso) &&
+            usuarioBanco.cep
+          ) {
+            await carregarEnderecoPeloCep(usuarioBanco.cep, false);
+          } else {
+            limparEnderecoViaCep();
+          }
+
           setFotoVersao(Date.now());
+          setFotoPerfilErro(false);
         } catch (error) {
           console.error(error);
           setMensagem('Não foi possível buscar os dados atualizados do banco.');
+          setFotoPerfilErro(true);
         } finally {
           setCarregando(false);
         }
@@ -107,11 +227,24 @@ export default function Perfil() {
     }, [])
   );
 
-  function alterarCep(valor: string) {
-    setCep(formatarCep(valor));
+  async function alterarCep(valor: string) {
+    setMensagem('');
+
+    const cepFormatado = formatarCep(valor);
+    const cepLimpo = limparCep(cepFormatado);
+
+    setCep(cepFormatado);
+
+    if (cepLimpo.length < 8) {
+      limparEnderecoViaCep();
+      return;
+    }
+
+    if (cepLimpo.length === 8) {
+      await carregarEnderecoPeloCep(cepLimpo, true);
+    }
   }
 
-  // Abre a galeria, seleciona uma imagem e envia para o backend.
   async function escolherFotoPerfil() {
     setMensagem('');
 
@@ -120,7 +253,6 @@ export default function Perfil() {
       return;
     }
 
-    // Pede permissão para acessar a galeria.
     const permissao = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
     if (!permissao.granted) {
@@ -128,7 +260,6 @@ export default function Perfil() {
       return;
     }
 
-    // Abre a galeria para escolher a imagem.
     const resultado = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
@@ -136,7 +267,6 @@ export default function Perfil() {
       quality: 0.8,
     });
 
-    // Se o usuário cancelar, não acontece nada.
     if (resultado.canceled) {
       return;
     }
@@ -151,18 +281,15 @@ export default function Perfil() {
     try {
       setSalvandoFoto(true);
 
-      // Envia a foto para:
-      // PUT /usuarios/{id}/foto
       await atualizarFotoPerfil(
         usuario.id,
         imagem.uri,
         imagem.mimeType || 'image/jpeg'
       );
 
-      // Atualiza a imagem no Mobile imediatamente.
       setFotoVersao(Date.now());
+      setFotoPerfilErro(false);
 
-      // Busca novamente o usuário atualizado.
       const usuarioAtualizado = await buscarUsuarioPorId(usuario.id);
 
       await AsyncStorage.setItem('usuario', JSON.stringify(usuarioAtualizado));
@@ -172,7 +299,6 @@ export default function Perfil() {
     } catch (error) {
       console.error(error);
 
-      // Mostra a mensagem real do backend quando existir.
       if (error instanceof Error) {
         setMensagem(error.message);
       } else {
@@ -196,21 +322,53 @@ export default function Perfil() {
       return;
     }
 
-    const cepLimpo = limparCep(cep);
+    let cepParaSalvar = usuario.cep || '';
 
-    if (cepLimpo.length !== 8) {
-      setMensagem('O CEP precisa ter 8 números.');
-      return;
+    if (ehUsuarioComum) {
+      const cepLimpo = limparCep(cep);
+
+      if (cepLimpo.length !== 8) {
+        setMensagem('O CEP precisa ter 8 números.');
+        return;
+      }
+
+      try {
+        setBuscandoCep(true);
+
+        const enderecoEncontrado = await buscarEnderecoPorCep(cepLimpo);
+
+        setEndereco(enderecoEncontrado.endereco);
+        setBairro(enderecoEncontrado.bairro);
+        setCidade(enderecoEncontrado.cidade);
+        setEstado(enderecoEncontrado.estado);
+        setCep(formatarCep(enderecoEncontrado.cep));
+        setCepValido(true);
+
+        cepParaSalvar = cepLimpo;
+      } catch (error) {
+        console.error(error);
+
+        limparEnderecoViaCep();
+
+        if (error instanceof Error) {
+          setMensagem(error.message);
+        } else {
+          setMensagem('CEP inválido ou não encontrado.');
+        }
+
+        return;
+      } finally {
+        setBuscandoCep(false);
+      }
     }
 
     try {
       setSalvando(true);
 
-      // Atualiza nome e CEP no banco.
       const usuarioAtualizado = await atualizarNomeECepUsuario(
         usuario.id,
         nome,
-        cepLimpo
+        cepParaSalvar
       );
 
       await AsyncStorage.setItem('usuario', JSON.stringify(usuarioAtualizado));
@@ -218,6 +376,16 @@ export default function Perfil() {
       setUsuario(usuarioAtualizado);
       setNome(usuarioAtualizado.nome || '');
       setCep(formatarCep(usuarioAtualizado.cep || ''));
+
+      if (
+        (usuarioAtualizado.nivelAcesso === 'USER' ||
+          !usuarioAtualizado.nivelAcesso) &&
+        usuarioAtualizado.cep
+      ) {
+        await carregarEnderecoPeloCep(usuarioAtualizado.cep, false);
+      } else {
+        limparEnderecoViaCep();
+      }
 
       setEditando(false);
       setMensagem('Perfil atualizado!');
@@ -257,9 +425,10 @@ export default function Perfil() {
         </TouchableOpacity>
 
         <View style={{ alignItems: 'center', marginBottom: 25 }}>
-          {fotoUrl ? (
+          {deveMostrarFotoPerfil ? (
             <Image
               source={{ uri: fotoUrl }}
+              onError={() => setFotoPerfilErro(true)}
               style={{
                 width: 130,
                 height: 130,
@@ -270,7 +439,7 @@ export default function Perfil() {
               }}
             />
           ) : (
-            <Ionicons name="person-circle-outline" size={130} color="#fff" />
+            <UserAvatarPlaceholder size={130} />
           )}
 
           <TouchableOpacity
@@ -351,7 +520,8 @@ export default function Perfil() {
             style={{
               color:
                 mensagem.includes('atualizada') ||
-                mensagem.includes('atualizado')
+                mensagem.includes('atualizado') ||
+                mensagem.includes('Endereço encontrado')
                   ? '#86efac'
                   : '#ffb4b4',
               marginBottom: 15,
@@ -405,30 +575,142 @@ export default function Perfil() {
           }}
         />
 
-        <Text style={{ color: '#aaa', fontSize: 18, marginBottom: 8 }}>
-          CEP
-        </Text>
+        {ehUsuarioComum ? (
+          <>
+            <Text style={{ color: '#aaa', fontSize: 18, marginBottom: 8 }}>
+              CEP
+            </Text>
 
-        <TextInput
-          value={cep}
-          onChangeText={alterarCep}
-          editable={editando}
-          keyboardType="numeric"
-          maxLength={9}
-          placeholder="00000-000"
-          placeholderTextColor="#777"
-          style={{
-            backgroundColor: '#1a1a1a',
-            color: '#fff',
-            padding: 18,
-            borderRadius: 18,
-            fontSize: 18,
-            marginBottom: 25,
-            borderWidth: 1,
-            borderColor: '#f97316',
-            opacity: editando ? 1 : 0.7,
-          }}
-        />
+            <TextInput
+              value={cep}
+              onChangeText={alterarCep}
+              editable={editando && !buscandoCep}
+              keyboardType="numeric"
+              maxLength={9}
+              placeholder="00000-000"
+              placeholderTextColor="#777"
+              style={{
+                backgroundColor: '#1a1a1a',
+                color: '#fff',
+                padding: 18,
+                borderRadius: 18,
+                fontSize: 18,
+                marginBottom: 12,
+                borderWidth: 1,
+                borderColor: '#f97316',
+                opacity: editando ? 1 : 0.7,
+              }}
+            />
+
+            {buscandoCep ? (
+              <View style={{ marginBottom: 15 }}>
+                <ActivityIndicator color="#f97316" />
+
+                <Text
+                  style={{
+                    color: '#ccc',
+                    textAlign: 'center',
+                    marginTop: 8,
+                  }}
+                >
+                  Buscando endereço pelo CEP...
+                </Text>
+              </View>
+            ) : null}
+
+            {deveMostrarCamposEndereco ? (
+              <>
+                <Text style={{ color: '#aaa', fontSize: 18, marginBottom: 8 }}>
+                  Endereço
+                </Text>
+
+                <TextInput
+                  value={endereco}
+                  editable={false}
+                  placeholder="Preenchido automaticamente pelo CEP"
+                  placeholderTextColor="#777"
+                  style={{
+                    backgroundColor: '#111',
+                    color: '#ccc',
+                    padding: 18,
+                    borderRadius: 18,
+                    fontSize: 18,
+                    marginBottom: 18,
+                    borderWidth: 1,
+                    borderColor: '#333',
+                    opacity: 0.8,
+                  }}
+                />
+
+                <Text style={{ color: '#aaa', fontSize: 18, marginBottom: 8 }}>
+                  Bairro
+                </Text>
+
+                <TextInput
+                  value={bairro}
+                  editable={false}
+                  placeholder="Preenchido automaticamente pelo CEP"
+                  placeholderTextColor="#777"
+                  style={{
+                    backgroundColor: '#111',
+                    color: '#ccc',
+                    padding: 18,
+                    borderRadius: 18,
+                    fontSize: 18,
+                    marginBottom: 18,
+                    borderWidth: 1,
+                    borderColor: '#333',
+                    opacity: 0.8,
+                  }}
+                />
+
+                <Text style={{ color: '#aaa', fontSize: 18, marginBottom: 8 }}>
+                  Cidade
+                </Text>
+
+                <TextInput
+                  value={cidade}
+                  editable={false}
+                  placeholder="Preenchida automaticamente pelo CEP"
+                  placeholderTextColor="#777"
+                  style={{
+                    backgroundColor: '#111',
+                    color: '#ccc',
+                    padding: 18,
+                    borderRadius: 18,
+                    fontSize: 18,
+                    marginBottom: 18,
+                    borderWidth: 1,
+                    borderColor: '#333',
+                    opacity: 0.8,
+                  }}
+                />
+
+                <Text style={{ color: '#aaa', fontSize: 18, marginBottom: 8 }}>
+                  Estado
+                </Text>
+
+                <TextInput
+                  value={estado}
+                  editable={false}
+                  placeholder="UF"
+                  placeholderTextColor="#777"
+                  style={{
+                    backgroundColor: '#111',
+                    color: '#ccc',
+                    padding: 18,
+                    borderRadius: 18,
+                    fontSize: 18,
+                    marginBottom: 25,
+                    borderWidth: 1,
+                    borderColor: '#333',
+                    opacity: 0.8,
+                  }}
+                />
+              </>
+            ) : null}
+          </>
+        ) : null}
 
         {!editando ? (
           <TouchableOpacity
@@ -451,9 +733,9 @@ export default function Perfil() {
         ) : (
           <TouchableOpacity
             onPress={salvarPerfil}
-            disabled={salvando}
+            disabled={salvando || buscandoCep}
             style={{
-              backgroundColor: salvando ? '#9a4d12' : '#f97316',
+              backgroundColor: salvando || buscandoCep ? '#9a4d12' : '#f97316',
               padding: 16,
               borderRadius: 15,
               alignItems: 'center',
@@ -469,6 +751,29 @@ export default function Perfil() {
             )}
           </TouchableOpacity>
         )}
+
+        <TouchableOpacity
+          onPress={abrirAlterarSenhaWeb}
+          style={{
+            backgroundColor: '#111',
+            padding: 16,
+            borderRadius: 15,
+            alignItems: 'center',
+            borderWidth: 1,
+            borderColor: '#f97316',
+            marginBottom: 12,
+          }}
+        >
+          <Text
+            style={{
+              color: '#f97316',
+              fontWeight: 'bold',
+              fontSize: 16,
+            }}
+          >
+            Alterar Senha
+          </Text>
+        </TouchableOpacity>
 
         <TouchableOpacity
           onPress={sair}

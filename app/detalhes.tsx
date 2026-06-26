@@ -1,11 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Image,
+  Platform,
   ScrollView,
   Text,
   TextInput,
@@ -15,6 +17,7 @@ import {
 
 import {
   alternarFavoritoNoBanco,
+  avaliacaoPertenceAoUsuario,
   buscarAcademiaPorId,
   buscarAvaliacoesDaAcademia,
   buscarFavoritosDoUsuario,
@@ -23,18 +26,64 @@ import {
   extrairIdsAcademiasFavoritas,
   getFotoAcademiaUrl,
   getNomeUsuarioAvaliacao,
+  inativarAvaliacao,
   normalizarFacilidades,
   type Academia,
   type Avaliacao,
   type Usuario,
 } from '@/lib/api';
 
-function getImagemAcademia(fotoUrl?: string | null) {
-  if (fotoUrl) {
-    return { uri: fotoUrl };
+function getInicialAcademia(nome?: string) {
+  const nomeLimpo = String(nome || 'A').trim();
+
+  if (!nomeLimpo) {
+    return 'A';
   }
 
-  return require('../assets/images/gym1.jpeg');
+  return nomeLimpo.charAt(0).toUpperCase();
+}
+
+function AcademiaSemFotoGrande({ nome }: { nome?: string }) {
+  return (
+    <LinearGradient
+      colors={['#1a0700', '#f97316']}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={{
+        width: 320,
+        height: 220,
+        alignSelf: 'center',
+        borderRadius: 25,
+        marginTop: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'hidden',
+      }}
+    >
+      <View
+        style={{
+          width: 86,
+          height: 86,
+          borderRadius: 43,
+          backgroundColor: '#fff',
+          borderWidth: 2,
+          borderColor: '#f97316',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Text
+          style={{
+            color: '#000',
+            fontSize: 44,
+            fontWeight: '900',
+          }}
+        >
+          {getInicialAcademia(nome)}
+        </Text>
+      </View>
+    </LinearGradient>
+  );
 }
 
 export default function Detalhes() {
@@ -48,16 +97,58 @@ export default function Detalhes() {
   const [favoritos, setFavoritos] = useState<string[]>([]);
 
   const [avaliacoes, setAvaliacoes] = useState<Avaliacao[]>([]);
-  const [notaSelecionada, setNotaSelecionada] = useState(5);
+
+  // Começa com 0 para as estrelas ficarem vazias.
+  const [notaSelecionada, setNotaSelecionada] = useState(0);
+
   const [comentario, setComentario] = useState('');
+  const [editandoAvaliacao, setEditandoAvaliacao] = useState(false);
+
   const [enviandoAvaliacao, setEnviandoAvaliacao] = useState(false);
+  const [excluindoAvaliacao, setExcluindoAvaliacao] = useState(false);
+
+  // Guarda avaliações excluídas localmente nesta tela.
+  // Assim, depois de excluir, o formulário volta imediatamente.
+  const [idsAvaliacoesInativadas, setIdsAvaliacoesInativadas] = useState<string[]>([]);
 
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
 
-  async function carregarAvaliacoes(academiaId: string | number) {
+  const avaliacoesAtivas = useMemo(() => {
+    return avaliacoes.filter((avaliacao) => {
+      const status = String(avaliacao.statusAvaliacao || 'ATIVO').toUpperCase();
+
+      const foiInativadaLocalmente = idsAvaliacoesInativadas.includes(
+        String(avaliacao.id)
+      );
+
+      return status !== 'INATIVO' && !foiInativadaLocalmente;
+    });
+  }, [avaliacoes, idsAvaliacoesInativadas]);
+
+  const minhaAvaliacao = useMemo(() => {
+    if (!usuario?.id) {
+      return null;
+    }
+
+    return (
+      avaliacoesAtivas.find((avaliacao) =>
+        avaliacaoPertenceAoUsuario(avaliacao, usuario.id)
+      ) || null
+    );
+  }, [avaliacoesAtivas, usuario?.id]);
+
+  const deveMostrarFormularioAvaliacao = !minhaAvaliacao || editandoAvaliacao;
+
+  async function carregarAvaliacoes(
+    academiaId: string | number,
+    usuarioId?: string | number
+  ) {
     try {
-      const avaliacoesBanco = await buscarAvaliacoesDaAcademia(academiaId);
+      const avaliacoesBanco = await buscarAvaliacoesDaAcademia(
+        academiaId,
+        usuarioId
+      );
 
       setAvaliacoes(avaliacoesBanco || []);
     } catch (error) {
@@ -80,10 +171,12 @@ export default function Detalhes() {
 
         setUsuario(usuarioLogado);
 
-        // Busca os favoritos reais do banco para definir se a estrela fica preenchida.
         if (usuarioLogado?.id) {
           try {
-            const academiasFavoritas = await buscarFavoritosDoUsuario(usuarioLogado.id);
+            const academiasFavoritas = await buscarFavoritosDoUsuario(
+              usuarioLogado.id
+            );
+
             setFavoritos(extrairIdsAcademiasFavoritas(academiasFavoritas));
           } catch (error) {
             console.error('Erro ao buscar favoritos do banco:', error);
@@ -98,14 +191,11 @@ export default function Detalhes() {
           return;
         }
 
-        // Busca dados reais da academia.
         const academiaBanco = await buscarAcademiaPorId(id);
         setAcademia(academiaBanco);
 
-        // Busca avaliações reais da academia.
-        await carregarAvaliacoes(id);
+        await carregarAvaliacoes(id, usuarioLogado?.id);
 
-        // Busca primeira foto real da academia.
         try {
           const primeiraFoto = await buscarPrimeiraFotoAcademia(id);
           setFotoUrl(primeiraFoto ? getFotoAcademiaUrl(primeiraFoto.id) : null);
@@ -130,10 +220,8 @@ export default function Detalhes() {
     }
 
     const academiaId = String(academia.id);
-
     const favoritosAnteriores = favoritos;
 
-    // Atualiza visualmente na hora.
     const novosFavoritos = favoritos.includes(academiaId)
       ? favoritos.filter((favoritoId) => favoritoId !== academiaId)
       : [...favoritos, academiaId];
@@ -141,19 +229,33 @@ export default function Detalhes() {
     setFavoritos(novosFavoritos);
 
     try {
-      // Salva no banco.
       await alternarFavoritoNoBanco(usuario.id, academia.id);
     } catch (error) {
       console.error('Erro ao atualizar favorito no banco:', error);
-
-      // Se falhar, desfaz visualmente.
       setFavoritos(favoritosAnteriores);
     }
+  }
+
+  function iniciarEdicaoAvaliacao(avaliacao: Avaliacao) {
+    setNotaSelecionada(Number(avaliacao.nota) || 0);
+    setComentario(avaliacao.comentario || '');
+    setEditandoAvaliacao(true);
+  }
+
+  function cancelarEdicaoAvaliacao() {
+    setNotaSelecionada(0);
+    setComentario('');
+    setEditandoAvaliacao(false);
   }
 
   async function enviarAvaliacao() {
     if (!academia || !usuario?.id) {
       Alert.alert('Atenção', 'Usuário não encontrado. Faça login novamente.');
+      return;
+    }
+
+    if (notaSelecionada < 1 || notaSelecionada > 5) {
+      Alert.alert('Atenção', 'Selecione uma nota de 1 a 5 estrelas.');
       return;
     }
 
@@ -170,19 +272,119 @@ export default function Detalhes() {
         comentario: comentario.trim(),
       });
 
+      setIdsAvaliacoesInativadas([]);
+
       setComentario('');
-      setNotaSelecionada(5);
+      setNotaSelecionada(0);
+      setEditandoAvaliacao(false);
 
-      // Recarrega as avaliações para aparecer a nova avaliação cadastrada.
-      await carregarAvaliacoes(academia.id);
+      await carregarAvaliacoes(academia.id, usuario.id);
 
-      Alert.alert('Sucesso', 'Avaliação enviada com sucesso.');
+      Alert.alert(
+        'Sucesso',
+        editandoAvaliacao
+          ? 'Avaliação atualizada com sucesso.'
+          : 'Avaliação enviada com sucesso.'
+      );
     } catch (error) {
       console.error('Erro ao enviar avaliação:', error);
-      Alert.alert('Erro', 'Não foi possível enviar sua avaliação.');
+
+      if (error instanceof Error) {
+        Alert.alert('Erro', error.message);
+      } else {
+        Alert.alert('Erro', 'Não foi possível enviar sua avaliação.');
+      }
     } finally {
       setEnviandoAvaliacao(false);
     }
+  }
+
+  // Esta função realmente executa a exclusão/inativação.
+  // Separei da confirmação para funcionar tanto no celular quanto no Expo Web.
+  async function executarExclusaoAvaliacao() {
+    if (!usuario?.id || !minhaAvaliacao || !academia) {
+      Alert.alert('Erro', 'Não foi possível identificar sua avaliação.');
+      return;
+    }
+
+    try {
+      setExcluindoAvaliacao(true);
+
+      const idAvaliacaoExcluida = String(minhaAvaliacao.id);
+
+      // Igual ao Web:
+      // não apaga do banco, apenas muda o status para INATIVO.
+      await inativarAvaliacao(minhaAvaliacao.id, usuario.id);
+
+      // Remove da tela imediatamente.
+      setAvaliacoes((listaAtual) =>
+        listaAtual.filter(
+          (avaliacao) => String(avaliacao.id) !== idAvaliacaoExcluida
+        )
+      );
+
+      setIdsAvaliacoesInativadas((listaAtual) => [
+        ...listaAtual,
+        idAvaliacaoExcluida,
+      ]);
+
+      setComentario('');
+      setNotaSelecionada(0);
+      setEditandoAvaliacao(false);
+
+      // Recarrega do banco depois de inativar.
+      await carregarAvaliacoes(academia.id, usuario.id);
+
+      Alert.alert('Sucesso', 'Avaliação excluída com sucesso.');
+    } catch (error) {
+      console.error('Erro ao excluir avaliação:', error);
+
+      if (error instanceof Error) {
+        Alert.alert('Erro', error.message);
+      } else {
+        Alert.alert('Erro', 'Não foi possível excluir sua avaliação.');
+      }
+    } finally {
+      setExcluindoAvaliacao(false);
+    }
+  }
+
+  function excluirMinhaAvaliacao() {
+    if (!usuario?.id || !minhaAvaliacao || !academia) {
+      Alert.alert('Erro', 'Não foi possível identificar sua avaliação.');
+      return;
+    }
+
+    // No Expo Web/navegador, o Alert.alert com botões pode não executar o onPress.
+    // Por isso usamos window.confirm no Web.
+    if (Platform.OS === 'web') {
+      const confirmou = window.confirm(
+        'Tem certeza que deseja excluir sua avaliação?'
+      );
+
+      if (confirmou) {
+        executarExclusaoAvaliacao();
+      }
+
+      return;
+    }
+
+    // No celular Android/iOS, Alert.alert com botões funciona corretamente.
+    Alert.alert(
+      'Excluir avaliação',
+      'Tem certeza que deseja excluir sua avaliação?',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: executarExclusaoAvaliacao,
+        },
+      ]
+    );
   }
 
   if (carregando) {
@@ -234,7 +436,7 @@ export default function Detalhes() {
         </Text>
 
         <TouchableOpacity
-          onPress={() => router.back()}
+            onPress={() => router.replace('/academias')}
           style={{
             backgroundColor: '#f97316',
             paddingVertical: 12,
@@ -261,7 +463,7 @@ export default function Detalhes() {
   return (
     <ScrollView style={{ flex: 1, backgroundColor: '#000' }}>
       <TouchableOpacity
-        onPress={() => router.back()}
+       onPress={() => router.replace('/academias')}
         style={{
           marginTop: 20,
           marginLeft: 20,
@@ -270,17 +472,21 @@ export default function Detalhes() {
         <Ionicons name="arrow-back" size={32} color="#f97316" />
       </TouchableOpacity>
 
-      <Image
-        source={getImagemAcademia(fotoUrl)}
-        style={{
-          width: 320,
-          height: 220,
-          alignSelf: 'center',
-          borderRadius: 25,
-          marginTop: 10,
-          backgroundColor: '#111',
-        }}
-      />
+      {fotoUrl ? (
+        <Image
+          source={{ uri: fotoUrl }}
+          style={{
+            width: 320,
+            height: 220,
+            alignSelf: 'center',
+            borderRadius: 25,
+            marginTop: 10,
+            backgroundColor: '#111',
+          }}
+        />
+      ) : (
+        <AcademiaSemFotoGrande nome={academia.nome} />
+      )}
 
       <View
         style={{
@@ -535,151 +741,257 @@ export default function Detalhes() {
             Avaliações
           </Text>
 
-          <View
-            style={{
-              backgroundColor: '#000',
-              borderRadius: 18,
-              borderWidth: 1,
-              borderColor: '#333',
-              padding: 15,
-              marginBottom: 25,
-            }}
-          >
-            <Text
-              style={{
-                color: '#fff',
-                fontSize: 17,
-                fontWeight: 'bold',
-                marginBottom: 12,
-              }}
-            >
-              Deixe sua avaliação
-            </Text>
-
-            <Text style={{ color: '#ccc', marginBottom: 8 }}>Nota</Text>
-
+          {deveMostrarFormularioAvaliacao ? (
             <View
               style={{
-                flexDirection: 'row',
-                marginBottom: 15,
-              }}
-            >
-              {[1, 2, 3, 4, 5].map((nota) => (
-                <TouchableOpacity
-                  key={nota}
-                  onPress={() => setNotaSelecionada(nota)}
-                  style={{ marginRight: 6 }}
-                >
-                  <Ionicons
-                    name={nota <= notaSelecionada ? 'star' : 'star-outline'}
-                    size={32}
-                    color="#facc15"
-                  />
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={{ color: '#ccc', marginBottom: 8 }}>Comentário</Text>
-
-            <TextInput
-              value={comentario}
-              onChangeText={setComentario}
-              placeholder="Ex: Ótima academia, equipamentos novos..."
-              placeholderTextColor="#777"
-              multiline
-              style={{
-                backgroundColor: '#111',
-                color: '#fff',
-                borderRadius: 14,
+                backgroundColor: '#000',
+                borderRadius: 18,
                 borderWidth: 1,
                 borderColor: '#333',
-                minHeight: 95,
-                padding: 12,
-                textAlignVertical: 'top',
-                marginBottom: 15,
-              }}
-            />
-
-            <TouchableOpacity
-              onPress={enviarAvaliacao}
-              disabled={enviandoAvaliacao}
-              style={{
-                backgroundColor: enviandoAvaliacao ? '#9a4b12' : '#f97316',
-                paddingVertical: 13,
-                borderRadius: 15,
-                alignItems: 'center',
+                padding: 15,
+                marginBottom: 25,
               }}
             >
               <Text
                 style={{
                   color: '#fff',
+                  fontSize: 17,
                   fontWeight: 'bold',
-                  fontSize: 16,
+                  marginBottom: 12,
                 }}
               >
-                {enviandoAvaliacao ? 'Enviando...' : 'Enviar avaliação'}
+                {editandoAvaliacao ? 'Editar sua avaliação' : 'Deixe sua avaliação'}
               </Text>
-            </TouchableOpacity>
-          </View>
 
-          {avaliacoes.length === 0 ? (
+              <Text style={{ color: '#ccc', marginBottom: 8 }}>Nota</Text>
+
+              <View
+                style={{
+                  flexDirection: 'row',
+                  marginBottom: 15,
+                }}
+              >
+                {[1, 2, 3, 4, 5].map((nota) => (
+                  <TouchableOpacity
+                    key={nota}
+                    onPress={() => setNotaSelecionada(nota)}
+                    style={{ marginRight: 6 }}
+                  >
+                    <Ionicons
+                      name={nota <= notaSelecionada ? 'star' : 'star-outline'}
+                      size={32}
+                      color="#facc15"
+                    />
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={{ color: '#ccc', marginBottom: 8 }}>Comentário</Text>
+
+              <TextInput
+                value={comentario}
+                onChangeText={setComentario}
+                placeholder="Ex: Ótima academia, equipamentos novos..."
+                placeholderTextColor="#777"
+                multiline
+                style={{
+                  backgroundColor: '#111',
+                  color: '#fff',
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: '#333',
+                  minHeight: 95,
+                  padding: 12,
+                  textAlignVertical: 'top',
+                  marginBottom: 15,
+                }}
+              />
+
+              <TouchableOpacity
+                onPress={enviarAvaliacao}
+                disabled={enviandoAvaliacao}
+                style={{
+                  backgroundColor: enviandoAvaliacao ? '#9a4b12' : '#f97316',
+                  paddingVertical: 13,
+                  borderRadius: 15,
+                  alignItems: 'center',
+                  marginBottom: editandoAvaliacao ? 10 : 0,
+                }}
+              >
+                <Text
+                  style={{
+                    color: '#fff',
+                    fontWeight: 'bold',
+                    fontSize: 16,
+                  }}
+                >
+                  {enviandoAvaliacao
+                    ? 'Salvando...'
+                    : editandoAvaliacao
+                      ? 'Salvar edição'
+                      : 'Enviar avaliação'}
+                </Text>
+              </TouchableOpacity>
+
+              {editandoAvaliacao ? (
+                <TouchableOpacity
+                  onPress={cancelarEdicaoAvaliacao}
+                  disabled={enviandoAvaliacao}
+                  style={{
+                    backgroundColor: '#111',
+                    paddingVertical: 13,
+                    borderRadius: 15,
+                    alignItems: 'center',
+                    borderWidth: 1,
+                    borderColor: '#333',
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: '#ccc',
+                      fontWeight: 'bold',
+                      fontSize: 16,
+                    }}
+                  >
+                    Cancelar
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null}
+
+          {minhaAvaliacao && !editandoAvaliacao ? (
+            <Text
+              style={{
+                color: '#ccc',
+                fontSize: 14,
+                marginBottom: 14,
+              }}
+            >
+              Você já avaliou esta academia. Use Editar ou Excluir na sua avaliação.
+            </Text>
+          ) : null}
+
+          {avaliacoesAtivas.length === 0 ? (
             <Text style={{ color: '#ccc', fontSize: 16 }}>
               Essa academia ainda não possui avaliações.
             </Text>
           ) : (
-            avaliacoes.map((avaliacao) => (
-              <View
-                key={String(avaliacao.id)}
-                style={{
-                  backgroundColor: '#000',
-                  borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: '#333',
-                  padding: 15,
-                  marginBottom: 15,
-                }}
-              >
+            avaliacoesAtivas.map((avaliacao) => {
+              const pertenceAoUsuario = avaliacaoPertenceAoUsuario(
+                avaliacao,
+                usuario?.id
+              );
+
+              return (
                 <View
+                  key={String(avaliacao.id)}
                   style={{
-                    flexDirection: 'row',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginBottom: 8,
+                    backgroundColor: '#000',
+                    borderRadius: 18,
+                    borderWidth: 1,
+                    borderColor: pertenceAoUsuario ? '#f97316' : '#333',
+                    padding: 15,
+                    marginBottom: 15,
                   }}
                 >
-                  <Text
+                  <View
                     style={{
-                      color: '#fff',
-                      fontWeight: 'bold',
-                      fontSize: 16,
-                      flex: 1,
-                      marginRight: 10,
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: 8,
                     }}
                   >
-                    {getNomeUsuarioAvaliacao(avaliacao)}
-                  </Text>
+                    <Text
+                      style={{
+                        color: '#fff',
+                        fontWeight: 'bold',
+                        fontSize: 16,
+                        flex: 1,
+                        marginRight: 10,
+                      }}
+                    >
+                      {getNomeUsuarioAvaliacao(avaliacao)}
+                      {pertenceAoUsuario ? ' (você)' : ''}
+                    </Text>
+
+                    <Text
+                      style={{
+                        color: '#facc15',
+                        fontWeight: 'bold',
+                      }}
+                    >
+                      {Number(avaliacao.nota).toFixed(1)} ⭐
+                    </Text>
+                  </View>
 
                   <Text
                     style={{
-                      color: '#facc15',
-                      fontWeight: 'bold',
+                      color: '#ccc',
+                      fontSize: 15,
+                      lineHeight: 22,
                     }}
                   >
-                    {Number(avaliacao.nota).toFixed(1)} ⭐
+                    {avaliacao.comentario || 'Sem comentário.'}
                   </Text>
+
+                  {pertenceAoUsuario ? (
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        marginTop: 14,
+                        gap: 10,
+                      }}
+                    >
+                      <TouchableOpacity
+                        onPress={() => iniciarEdicaoAvaliacao(avaliacao)}
+                        disabled={excluindoAvaliacao}
+                        style={{
+                          flex: 1,
+                          backgroundColor: '#f97316',
+                          paddingVertical: 11,
+                          borderRadius: 12,
+                          alignItems: 'center',
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: '#fff',
+                            fontWeight: 'bold',
+                          }}
+                        >
+                          Editar
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={excluirMinhaAvaliacao}
+                        disabled={excluindoAvaliacao}
+                        style={{
+                          flex: 1,
+                          backgroundColor: '#2a0f0f',
+                          paddingVertical: 11,
+                          borderRadius: 12,
+                          alignItems: 'center',
+                          borderWidth: 1,
+                          borderColor: '#7f1d1d',
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: '#ffb4b4',
+                            fontWeight: 'bold',
+                          }}
+                        >
+                          {excluindoAvaliacao ? 'Excluindo...' : 'Excluir'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
                 </View>
-
-                <Text
-                  style={{
-                    color: '#ccc',
-                    fontSize: 15,
-                    lineHeight: 22,
-                  }}
-                >
-                  {avaliacao.comentario || 'Sem comentário.'}
-                </Text>
-              </View>
-            ))
+              );
+            })
           )}
         </View>
       </View>

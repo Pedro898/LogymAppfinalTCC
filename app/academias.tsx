@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
@@ -14,6 +15,7 @@ import {
 } from 'react-native';
 
 import BottomTabBar from '../components/BottomTabBar';
+import UserAvatarPlaceholder from '../components/UserAvatarPlaceholder';
 
 import {
   alternarFavoritoNoBanco,
@@ -31,8 +33,6 @@ import {
   type Usuario,
 } from '@/lib/api';
 
-// Lista de filtros rápidos igual ao Web.
-// Aqui misturamos categorias e facilidades para o usuário filtrar de forma simples.
 const filtrosRapidos = [
   'Musculação',
   'Crossfit',
@@ -50,53 +50,78 @@ const filtrosRapidos = [
   'Vestiário',
 ];
 
-// Tipo usado apenas nesta tela.
-// Ele pega todos os dados normais da Academia e adiciona uma fotoUrl opcional.
-// A fotoUrl é preenchida depois que buscamos a primeira foto da academia no backend.
 type AcademiaComFoto = Academia & {
   fotoUrl?: string | null;
 };
 
-// Decide qual imagem será exibida no card da academia.
-// Se existir foto real cadastrada no banco, usa ela.
-// Se não existir, usa uma imagem padrão local do app.
-function getImagemAcademia(academia: AcademiaComFoto) {
-  if (academia.fotoUrl) {
-    return { uri: academia.fotoUrl };
+function getInicialAcademia(nome?: string) {
+  const nomeLimpo = String(nome || 'A').trim();
+
+  if (!nomeLimpo) {
+    return 'A';
   }
 
-  return require('../assets/images/gym1.jpeg');
+  return nomeLimpo.charAt(0).toUpperCase();
+}
+
+function AcademiaSemFoto({ nome }: { nome?: string }) {
+  return (
+    <LinearGradient
+      colors={['#1a0700', '#f97316']}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={{
+        width: 120,
+        height: 120,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <View
+        style={{
+          width: 66,
+          height: 66,
+          borderRadius: 33,
+          backgroundColor: '#fff',
+          borderWidth: 2,
+          borderColor: '#f97316',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Text
+          style={{
+            color: '#000',
+            fontSize: 34,
+            fontWeight: '900',
+          }}
+        >
+          {getInicialAcademia(nome)}
+        </Text>
+      </View>
+    </LinearGradient>
+  );
 }
 
 export default function Academias() {
   const router = useRouter();
 
-  // Texto digitado na barra de busca.
   const [busca, setBusca] = useState('');
-
-  // Guarda todos os filtros selecionados pelo usuário.
-  // Permite selecionar mais de um filtro ao mesmo tempo, igual ao Web.
   const [filtrosSelecionados, setFiltrosSelecionados] = useState<string[]>([]);
-
-  // Guarda os IDs das academias favoritas do usuário logado.
-  // Usamos string para facilitar a comparação com String(item.id).
   const [favoritos, setFavoritos] = useState<string[]>([]);
-
-  // Dados do usuário logado, carregados do AsyncStorage.
   const [usuario, setUsuario] = useState<Usuario | null>(null);
 
-  // Lista de academias reais do backend, já com fotoUrl quando existir.
-  const [academias, setAcademias] = useState<AcademiaComFoto[]>([]);
+  // Quando a foto do usuário não existe no banco, a URL ainda é criada por causa do usuario.id.
+  // Então usamos esse controle para trocar para o bonequinho quando a imagem falhar.
+  const [fotoUsuarioErro, setFotoUsuarioErro] = useState(false);
 
-  // Estados usados para controlar carregamento e mensagens de erro.
+  const [academias, setAcademias] = useState<AcademiaComFoto[]>([]);
   const [carregandoAcademias, setCarregandoAcademias] = useState(false);
   const [erroAcademias, setErroAcademias] = useState('');
 
   useFocusEffect(
     useCallback(() => {
       async function carregarDados() {
-        // Busca o usuário salvo localmente após o login.
-        // Ele é usado para descobrir o id e chamar rotas específicas do usuário.
         const usuarioSalvo = await AsyncStorage.getItem('usuario');
 
         const usuarioLogado: Usuario | null = usuarioSalvo
@@ -104,41 +129,31 @@ export default function Academias() {
           : null;
 
         setUsuario(usuarioLogado);
+        setFotoUsuarioErro(false);
 
         try {
           setCarregandoAcademias(true);
           setErroAcademias('');
 
-          // Se houver usuário logado, busca os favoritos reais no backend.
-          // O backend retorna uma lista de academias favoritas.
           if (usuarioLogado?.id) {
             try {
               const academiasFavoritas = await buscarFavoritosDoUsuario(
                 usuarioLogado.id
               );
 
-              // Converte a lista de academias favoritas em uma lista só com os IDs.
-              // Isso facilita para saber se a estrela deve aparecer preenchida.
               setFavoritos(extrairIdsAcademiasFavoritas(academiasFavoritas));
             } catch (error) {
               console.error('Erro ao buscar favoritos do banco:', error);
-
-              // Se der erro nos favoritos, a tela ainda carrega as academias normalmente.
               setFavoritos([]);
             }
           } else {
             setFavoritos([]);
           }
 
-          // Busca academias do backend.
-          // Se tiver usuário logado, usa a rota de academias próximas pelo CEP.
-          // Se não tiver usuário logado, busca todas as academias ativas.
           const lista = usuarioLogado?.id
             ? await buscarAcademiasProximasDoUsuario(usuarioLogado.id)
             : await buscarAcademias();
 
-          // Para cada academia, buscamos a primeira foto cadastrada.
-          // Assim a lista mostra fotos reais do banco quando existirem.
           const listaComFotos = await Promise.all(
             lista.map(async (academia) => {
               try {
@@ -158,7 +173,6 @@ export default function Academias() {
                   error
                 );
 
-                // Se a foto falhar, mantém a academia na lista com imagem padrão.
                 return {
                   ...academia,
                   fotoUrl: null,
@@ -176,13 +190,10 @@ export default function Academias() {
         }
       }
 
-      // useFocusEffect executa quando a tela entra em foco.
-      // Isso ajuda a atualizar favoritos, CEP e ordem das academias quando voltar para esta tela.
       carregarDados();
     }, [])
   );
 
-  // Adiciona ou remove um filtro da lista de filtros selecionados.
   function alternarFiltro(filtro: string) {
     setFiltrosSelecionados((listaAtual) => {
       if (listaAtual.includes(filtro)) {
@@ -193,20 +204,15 @@ export default function Academias() {
     });
   }
 
-  // Limpa a busca por texto e todos os filtros selecionados.
   function limparFiltros() {
     setFiltrosSelecionados([]);
     setBusca('');
   }
 
-  // Aplica os filtros na lista de academias.
-  // A academia precisa bater com o texto da busca e com todos os filtros selecionados.
   const academiasFiltradas = academias.filter((academia) => {
     const categoriasAcademia = normalizarCategorias(academia.categorias);
     const facilidadesAcademia = normalizarFacilidades(academia.facilidades);
 
-    // Texto geral usado para a busca.
-    // Junta nome, endereço, descrição, categorias e facilidades.
     const texto = `
       ${academia.nome}
       ${academia.endereco}
@@ -222,9 +228,6 @@ export default function Academias() {
 
     const correspondeBusca = texto.includes(busca.toLowerCase());
 
-    // Para cada filtro selecionado, verifica se ele existe em categorias OU facilidades.
-    // Exemplo: Musculação + Wi-Fi.
-    // A academia precisa ter Musculação e também Wi-Fi para aparecer.
     const correspondeFiltros = filtrosSelecionados.every((filtro) => {
       return (
         categoriasAcademia.includes(filtro) ||
@@ -235,9 +238,6 @@ export default function Academias() {
     return correspondeBusca && correspondeFiltros;
   });
 
-  // Favorita ou desfavorita uma academia.
-  // Primeiro atualiza a tela para ficar rápido.
-  // Depois confirma a alteração no backend.
   async function alternarFavorito(id: string | number) {
     if (!usuario?.id) {
       console.log('Usuário não encontrado para favoritar.');
@@ -257,14 +257,13 @@ export default function Academias() {
       await alternarFavoritoNoBanco(usuario.id, id);
     } catch (error) {
       console.error('Erro ao atualizar favorito no banco:', error);
-
-      // Se o backend falhar, volta para o estado anterior.
       setFavoritos(favoritosAnteriores);
     }
   }
 
   const nomeUsuario = formatarNomeUsuario(usuario);
   const fotoUsuarioUrl = getFotoUsuarioUrl(usuario?.id);
+  const deveMostrarFotoUsuario = fotoUsuarioUrl && !fotoUsuarioErro;
 
   return (
     <View
@@ -273,13 +272,9 @@ export default function Academias() {
         backgroundColor: '#000',
         paddingTop: 20,
         paddingHorizontal: 15,
-
-        // Espaço inferior para a lista não ficar escondida atrás da barra inferior.
         paddingBottom: 86,
       }}
     >
-      {/* Topo da tela.
-          O menu lateral foi removido porque a navegação principal agora fica na barra inferior. */}
       <View
         style={{
           flexDirection: 'row',
@@ -287,7 +282,6 @@ export default function Academias() {
           marginBottom: -40,
         }}
       >
-        {/* Foto e nome do usuário logado. */}
         <View
           style={{
             flexDirection: 'row',
@@ -295,9 +289,10 @@ export default function Academias() {
             maxWidth: 160,
           }}
         >
-          {fotoUsuarioUrl ? (
+          {deveMostrarFotoUsuario ? (
             <Image
               source={{ uri: fotoUsuarioUrl }}
+              onError={() => setFotoUsuarioErro(true)}
               style={{
                 width: 40,
                 height: 40,
@@ -306,7 +301,7 @@ export default function Academias() {
               }}
             />
           ) : (
-            <Ionicons name="person-circle-outline" size={40} color="#fff" />
+            <UserAvatarPlaceholder size={40} />
           )}
 
           <Text
@@ -321,7 +316,6 @@ export default function Academias() {
           </Text>
         </View>
 
-        {/* Logo do LOGYM no topo. */}
         <Image
           source={require('../assets/images/logo.png')}
           style={{
@@ -334,9 +328,7 @@ export default function Academias() {
         />
       </View>
 
-      {/* Área de busca e filtros rápidos. */}
       <View style={{ marginBottom: 15 }}>
-        {/* Campo de busca por texto. */}
         <View
           style={{
             flexDirection: 'row',
@@ -357,7 +349,6 @@ export default function Academias() {
           />
         </View>
 
-        {/* Título da área de filtros e botão limpar. */}
         <View
           style={{
             marginTop: 12,
@@ -391,8 +382,6 @@ export default function Academias() {
           )}
         </View>
 
-        {/* Lista horizontal de filtros.
-            Cada botão pode ser selecionado ou removido individualmente. */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -441,7 +430,6 @@ export default function Academias() {
           })}
         </ScrollView>
 
-        {/* Mostra a quantidade de academias encontradas após busca/filtros. */}
         <Text
           style={{
             color: '#ccc',
@@ -452,7 +440,6 @@ export default function Academias() {
           Resultado: {academiasFiltradas.length} academia(s)
         </Text>
 
-        {/* Mostra visualmente quais filtros estão ativos. */}
         {filtrosSelecionados.length > 0 ? (
           <Text
             style={{
@@ -466,7 +453,6 @@ export default function Academias() {
         ) : null}
       </View>
 
-      {/* Estados da tela: carregando, erro, vazio ou lista de academias. */}
       {carregandoAcademias ? (
         <View style={{ marginTop: 40 }}>
           <ActivityIndicator color="#f97316" />
@@ -496,8 +482,6 @@ export default function Academias() {
         <FlatList
           data={academiasFiltradas}
           keyExtractor={(item) => String(item.id)}
-
-          // Pequeno espaço final para o último card não encostar na barra inferior.
           contentContainerStyle={{ paddingBottom: 18 }}
           renderItem={({ item }) => (
             <TouchableOpacity
@@ -515,10 +499,14 @@ export default function Academias() {
                 overflow: 'hidden',
               }}
             >
-              <Image
-                source={getImagemAcademia(item)}
-                style={{ width: 120, height: 120 }}
-              />
+              {item.fotoUrl ? (
+                <Image
+                  source={{ uri: item.fotoUrl }}
+                  style={{ width: 120, height: 120 }}
+                />
+              ) : (
+                <AcademiaSemFoto nome={item.nome} />
+              )}
 
               <View style={{ flex: 1, padding: 10 }}>
                 <Text
@@ -557,8 +545,6 @@ export default function Academias() {
                 )}
               </View>
 
-              {/* Botão de favorito.
-                  stopPropagation impede abrir detalhes quando clicar só na estrela. */}
               <TouchableOpacity
                 onPress={(event) => {
                   event.stopPropagation();
@@ -579,7 +565,6 @@ export default function Academias() {
         />
       )}
 
-      {/* Barra de navegação inferior principal do app. */}
       <BottomTabBar />
     </View>
   );

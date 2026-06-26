@@ -51,6 +51,15 @@ export type FotoAcademia = {
   statusFotoAcademia?: string;
 };
 
+// Tipo usado no Mobile para guardar o endereço retornado pelo ViaCEP.
+export type EnderecoViaCep = {
+  cep: string;
+  endereco: string;
+  bairro: string;
+  cidade: string;
+  estado: string;
+};
+
 // Remove barra final da URL, caso venha algo como http://localhost:8080/
 function removerBarraFinal(url: string) {
   return url.replace(/\/$/, '');
@@ -157,14 +166,51 @@ export function formatarCep(cep?: string) {
   return numeros.replace(/^(\d{5})(\d{1,3})$/, '$1-$2');
 }
 
+// Busca endereço no ViaCEP.
+// Essa função NÃO usa o backend.
+// Ela funciona igual ao Web: chama diretamente a API pública do ViaCEP.
+export async function buscarEnderecoPorCep(cep: string): Promise<EnderecoViaCep> {
+  const cepLimpo = limparCep(cep);
+
+  if (cepLimpo.length !== 8) {
+    throw new Error('O CEP precisa ter 8 números.');
+  }
+
+  const resposta = await fetch(`https://viacep.com.br/ws/${cepLimpo}/json/`);
+
+  if (!resposta.ok) {
+    throw new Error('Não foi possível buscar o CEP no ViaCEP.');
+  }
+
+  const dados = await resposta.json();
+
+  // Quando o ViaCEP não encontra o CEP, ele retorna:
+  // { "erro": true }
+  if (dados.erro) {
+    throw new Error('CEP inválido ou não encontrado.');
+  }
+
+  return {
+    cep: formatarCep(dados.cep || cepLimpo),
+    endereco: dados.logradouro || '',
+    bairro: dados.bairro || '',
+    cidade: dados.localidade || '',
+    estado: dados.uf || '',
+  };
+}
+
 // Monta a URL da foto do usuário.
-// Date.now evita cache antigo quando a foto é alterada.
+// Não colocamos Date.now() aqui para a imagem não ficar piscando
+// toda vez que a tela renderizar, como ao digitar nome ou CEP.
+//
+// Quem controla a atualização da foto é a tela perfil.tsx,
+// usando o estado fotoVersao somente quando a foto é realmente alterada.
 export function getFotoUsuarioUrl(usuarioId?: string | number) {
   if (!usuarioId) {
     return null;
   }
 
-  return `${API_URL}/usuarios/${usuarioId}/foto?v=${Date.now()}`;
+  return `${API_URL}/usuarios/${usuarioId}/foto`;
 }
 
 // Transforma a string "Musculação, Yoga" em ["Musculação", "Yoga"].
@@ -228,7 +274,7 @@ export async function atualizarFotoPerfil(
 
   // IMPORTANTE:
   // O nome do campo precisa ser "file",
-  // porque no backend vamos usar:
+  // porque no backend está:
   // @RequestParam("file") MultipartFile file
 
   // No Expo Web/navegador, precisamos converter a imagem para Blob.
@@ -346,7 +392,17 @@ export type Avaliacao = {
   dataCadastro?: string;
   statusAvaliacao?: string;
 
-  // Dependendo do backend, pode vir usuário completo ou só alguns campos.
+  // Campos que vêm do AvaliacaoDTO do backend.
+  academiaId?: string | number;
+  academiaNome?: string;
+  nomeAcademia?: string;
+
+  usuarioId?: string | number;
+  usuarioNome?: string;
+  nomeUsuario?: string;
+
+  // Mantemos estes campos também por segurança,
+  // caso alguma resposta antiga venha com objeto usuario/academia.
   usuario?: {
     id: string | number;
     nome?: string;
@@ -360,13 +416,32 @@ export type Avaliacao = {
 };
 
 // Busca as avaliações de uma academia.
-// Rota: GET /avaliacoes/academia/{academiaId}
-export async function buscarAvaliacoesDaAcademia(academiaId: string | number) {
-  return request<Avaliacao[]>(`/avaliacoes/academia/${academiaId}`);
+//
+// Backend:
+// GET /avaliacoes/academia/{academiaId}
+//
+// Também aceita usuarioId:
+// GET /avaliacoes/academia/{academiaId}?usuarioId={usuarioId}
+//
+// O usuarioId é importante porque o backend pode retornar a avaliação
+// do próprio usuário mesmo em casos específicos, igual acontece no Web.
+export async function buscarAvaliacoesDaAcademia(
+  academiaId: string | number,
+  usuarioId?: string | number
+) {
+  const queryUsuario = usuarioId ? `?usuarioId=${usuarioId}` : '';
+
+  return request<Avaliacao[]>(
+    `/avaliacoes/academia/${academiaId}${queryUsuario}`
+  );
 }
 
-// Cria uma avaliação para uma academia.
-// Rota: POST /avaliacoes?usuarioId={usuarioId}&academiaId={academiaId}
+// Cria ou edita uma avaliação.
+//
+// Regra do backend:
+// Se o usuário ainda não avaliou, cria uma avaliação nova.
+// Se o usuário já avaliou essa academia, atualiza a avaliação existente.
+// Se a avaliação estava INATIVA, ela volta como ATIVO.
 export async function criarAvaliacao(
   usuarioId: string | number,
   academiaId: string | number,
@@ -387,10 +462,52 @@ export async function criarAvaliacao(
   );
 }
 
+// Inativa a avaliação do usuário.
+//
+// Backend:
+// PUT /avaliacoes/{avaliacaoId}/inativar?usuarioId={usuarioId}
+//
+// Importante:
+// Isso NÃO apaga do banco.
+// Apenas muda o status para INATIVO, igual ao Web.
+export async function inativarAvaliacao(
+  avaliacaoId: string | number,
+  usuarioId: string | number
+) {
+  return request<void>(
+    `/avaliacoes/${avaliacaoId}/inativar?usuarioId=${usuarioId}`,
+    {
+      method: 'PUT',
+    }
+  );
+}
+
+// Pega o nome do usuário que fez a avaliação.
+//
+// O backend atual usa DTO, então normalmente vem como nomeUsuario.
+// Mas deixamos fallback para usuario.nome e usuario.username também.
 export function getNomeUsuarioAvaliacao(avaliacao: Avaliacao) {
   return (
+    avaliacao.nomeUsuario ||
+    avaliacao.usuarioNome ||
     avaliacao.usuario?.nome ||
     avaliacao.usuario?.username ||
     'Usuário'
   );
+}
+
+// Descobre se uma avaliação pertence ao usuário logado.
+export function avaliacaoPertenceAoUsuario(
+  avaliacao: Avaliacao,
+  usuarioId?: string | number
+) {
+  if (!usuarioId) {
+    return false;
+  }
+
+  const idUsuarioAvaliacao =
+    avaliacao.usuarioId ||
+    avaliacao.usuario?.id;
+
+  return String(idUsuarioAvaliacao) === String(usuarioId);
 }

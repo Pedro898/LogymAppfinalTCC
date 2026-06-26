@@ -1,8 +1,17 @@
 import { login, type Usuario } from '@/lib/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Image, Linking, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  Image,
+  Linking,
+  Platform,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 export default function Login() {
   const router = useRouter();
@@ -11,6 +20,44 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState('');
+
+  // Descobre automaticamente a URL da Web.
+  // No navegador usa localhost.
+  // No celular físico tenta usar o IP do computador pelo Expo.
+  function buscarWebUrl() {
+    if (process.env.EXPO_PUBLIC_WEB_URL) {
+      return process.env.EXPO_PUBLIC_WEB_URL.replace(/\/$/, '');
+    }
+
+    if (Platform.OS === 'web') {
+      return 'http://localhost:5173';
+    }
+
+    const hostUri =
+      Constants.expoConfig?.hostUri ||
+      (Constants as any).manifest?.debuggerHost ||
+      (Constants as any).manifest2?.extra?.expoClient?.hostUri;
+
+    const host = hostUri?.split(':')[0];
+
+    if (host && host !== 'localhost' && host !== '127.0.0.1') {
+      return `http://${host}:5173`;
+    }
+
+    return 'http://localhost:5173';
+  }
+
+  const WEB_URL = buscarWebUrl();
+
+  function abrirWebLoginComRedirect(redirect: string) {
+    const redirectFormatado = encodeURIComponent(redirect);
+
+    Linking.openURL(`${WEB_URL}/login?redirect=${redirectFormatado}`);
+  }
+
+  function abrirCadastroWeb() {
+    Linking.openURL(`${WEB_URL}/cadastrar`);
+  }
 
   function criarUsuarioLocal(): Usuario {
     const usuarioDigitado = username.trim();
@@ -70,12 +117,14 @@ export default function Login() {
   }
 
   return (
-    <View style={{
-      flex: 1,
-      backgroundColor: '#000000',
-      justifyContent: 'center',
-      padding: 25,
-    }}>
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: '#000000',
+        justifyContent: 'center',
+        padding: 25,
+      }}
+    >
       <Image
         source={require('../assets/images/logo.png')}
         style={{
@@ -90,14 +139,16 @@ export default function Login() {
         }}
       />
 
-      <View style={{
-        backgroundColor: '#000000',
-        padding: 20,
-        borderRadius: 25,
-        shadowColor: '#000',
-        shadowOpacity: 0.3,
-        shadowRadius: 10,
-      }}>
+      <View
+        style={{
+          backgroundColor: '#000000',
+          padding: 20,
+          borderRadius: 25,
+          shadowColor: '#000',
+          shadowOpacity: 0.3,
+          shadowRadius: 10,
+        }}
+      >
         <Text style={{ color: '#ffffff', marginBottom: 5 }}>
           Usuário
         </Text>
@@ -108,6 +159,7 @@ export default function Login() {
           value={username}
           onChangeText={setUsername}
           autoCapitalize="none"
+          keyboardType="email-address"
           style={{
             backgroundColor: '#8b8a8a',
             color: '#fff',
@@ -137,20 +189,23 @@ export default function Login() {
         />
 
         {erro ? (
-          <Text style={{
-            color: '#ffb4b4',
-            marginBottom: 12,
-          }}>
+          <Text
+            style={{
+              color: '#ffb4b4',
+              marginBottom: 12,
+            }}
+          >
             {erro}
           </Text>
         ) : null}
 
         <Text
-          onPress={() => Linking.openURL('https://meusite.com/esqueci-senha')}
+          onPress={() => abrirWebLoginComRedirect('/esqueci-minha-senha')}
           style={{
             color: '#f97316',
             textAlign: 'right',
-            marginBottom: 20,
+            marginBottom: 16,
+            fontWeight: 'bold',
           }}
         >
           Esqueceu a senha?
@@ -167,26 +222,31 @@ export default function Login() {
             shadowColor: '#f97316',
             shadowOpacity: 0.6,
             shadowRadius: 10,
+            marginBottom: 12,
           }}
         >
-          <Text style={{
-            color: '#fff',
-            fontWeight: 'bold',
-            fontSize: 16,
-          }}>
+          <Text
+            style={{
+              color: '#fff',
+              fontWeight: 'bold',
+              fontSize: 16,
+            }}
+          >
             {carregando ? 'Entrando...' : 'Entrar'}
           </Text>
         </TouchableOpacity>
 
-        <Text style={{
-          color: '#fff',
-          marginTop: 20,
-          textAlign: 'center',
-        }}>
+        <Text
+          style={{
+            color: '#fff',
+            marginTop: 8,
+            textAlign: 'center',
+          }}
+        >
           Ainda não possui uma conta?{' '}
 
           <Text
-            onPress={() => Linking.openURL('https://meusite.com/cadastro')}
+            onPress={abrirCadastroWeb}
             style={{
               color: '#f97316',
               fontWeight: 'bold',
