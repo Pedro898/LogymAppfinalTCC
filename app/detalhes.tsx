@@ -27,6 +27,7 @@ import {
   getFotoAcademiaUrl,
   getNomeUsuarioAvaliacao,
   inativarAvaliacao,
+  normalizarCategorias,
   normalizarFacilidades,
   type Academia,
   type Avaliacao,
@@ -299,8 +300,6 @@ export default function Detalhes() {
     }
   }
 
-  // Esta função realmente executa a exclusão/inativação.
-  // Separei da confirmação para funcionar tanto no celular quanto no Expo Web.
   async function executarExclusaoAvaliacao() {
     if (!usuario?.id || !minhaAvaliacao || !academia) {
       Alert.alert('Erro', 'Não foi possível identificar sua avaliação.');
@@ -312,11 +311,8 @@ export default function Detalhes() {
 
       const idAvaliacaoExcluida = String(minhaAvaliacao.id);
 
-      // Igual ao Web:
-      // não apaga do banco, apenas muda o status para INATIVO.
       await inativarAvaliacao(minhaAvaliacao.id, usuario.id);
 
-      // Remove da tela imediatamente.
       setAvaliacoes((listaAtual) =>
         listaAtual.filter(
           (avaliacao) => String(avaliacao.id) !== idAvaliacaoExcluida
@@ -332,7 +328,6 @@ export default function Detalhes() {
       setNotaSelecionada(0);
       setEditandoAvaliacao(false);
 
-      // Recarrega do banco depois de inativar.
       await carregarAvaliacoes(academia.id, usuario.id);
 
       Alert.alert('Sucesso', 'Avaliação excluída com sucesso.');
@@ -355,8 +350,6 @@ export default function Detalhes() {
       return;
     }
 
-    // No Expo Web/navegador, o Alert.alert com botões pode não executar o onPress.
-    // Por isso usamos window.confirm no Web.
     if (Platform.OS === 'web') {
       const confirmou = window.confirm(
         'Tem certeza que deseja excluir sua avaliação?'
@@ -369,7 +362,6 @@ export default function Detalhes() {
       return;
     }
 
-    // No celular Android/iOS, Alert.alert com botões funciona corretamente.
     Alert.alert(
       'Excluir avaliação',
       'Tem certeza que deseja excluir sua avaliação?',
@@ -436,7 +428,7 @@ export default function Detalhes() {
         </Text>
 
         <TouchableOpacity
-            onPress={() => router.replace('/academias')}
+          onPress={() => router.replace('/academias')}
           style={{
             backgroundColor: '#f97316',
             paddingVertical: 12,
@@ -458,12 +450,13 @@ export default function Detalhes() {
   }
 
   const academiaId = String(academia.id);
+  const categorias = normalizarCategorias(academia.categorias);
   const facilidades = normalizarFacilidades(academia.facilidades);
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: '#000' }}>
       <TouchableOpacity
-       onPress={() => router.replace('/academias')}
+        onPress={() => router.replace('/academias')}
         style={{
           marginTop: 20,
           marginLeft: 20,
@@ -684,6 +677,49 @@ export default function Detalhes() {
               Nenhum contato cadastrado.
             </Text>
           ) : null}
+        </View>
+
+        <View style={{ marginTop: 35 }}>
+          <Text
+            style={{
+              color: '#f97316',
+              fontSize: 22,
+              fontWeight: 'bold',
+              marginBottom: 15,
+            }}
+          >
+            Categorias
+          </Text>
+
+          {categorias.length > 0 ? (
+            categorias.map((categoria, index) => (
+              <View
+                key={`${categoria}-${index}`}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  marginBottom: 14,
+                }}
+              >
+                <Ionicons name="barbell" size={22} color="#f97316" />
+
+                <Text
+                  style={{
+                    color: '#fff',
+                    fontSize: 16,
+                    marginLeft: 10,
+                    flex: 1,
+                  }}
+                >
+                  {categoria}
+                </Text>
+              </View>
+            ))
+          ) : (
+            <Text style={{ color: '#ccc', fontSize: 16 }}>
+              Nenhuma categoria cadastrada.
+            </Text>
+          )}
         </View>
 
         <View style={{ marginTop: 35 }}>

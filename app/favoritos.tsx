@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
@@ -26,12 +27,60 @@ type AcademiaFavorita = Academia & {
   fotoUrl?: string | null;
 };
 
-function getImagemAcademia(academia: AcademiaFavorita) {
-  if (academia.fotoUrl) {
-    return { uri: academia.fotoUrl };
+// Pega a primeira letra do nome da academia.
+// Essa letra aparece quando a academia não tem foto cadastrada.
+function getInicialAcademia(nome?: string) {
+  const nomeLimpo = String(nome || 'A').trim();
+
+  if (!nomeLimpo) {
+    return 'A';
   }
 
-  return require('../assets/images/gym1.jpeg');
+  return nomeLimpo.charAt(0).toUpperCase();
+}
+
+// Mesmo visual usado na Home:
+// fundo degradê escuro/laranja,
+// círculo branco,
+// borda laranja,
+// inicial preta no centro.
+function AcademiaSemFoto({ nome }: { nome?: string }) {
+  return (
+    <LinearGradient
+      colors={['#1a0700', '#f97316']}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={{
+        width: 120,
+        height: 120,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <View
+        style={{
+          width: 66,
+          height: 66,
+          borderRadius: 33,
+          backgroundColor: '#fff',
+          borderWidth: 2,
+          borderColor: '#f97316',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Text
+          style={{
+            color: '#000',
+            fontSize: 34,
+            fontWeight: '900',
+          }}
+        >
+          {getInicialAcademia(nome)}
+        </Text>
+      </View>
+    </LinearGradient>
+  );
 }
 
 export default function Favoritos() {
@@ -63,8 +112,11 @@ export default function Favoritos() {
             return;
           }
 
+          // Busca as academias favoritas reais do banco.
           const academiasBanco = await buscarFavoritosDoUsuario(usuarioLogado.id);
 
+          // Para cada academia favorita, tenta buscar a primeira foto cadastrada.
+          // Se não tiver foto, fotoUrl fica null e mostramos o fallback com a inicial.
           const academiasComFotos = await Promise.all(
             academiasBanco.map(async (academia) => {
               try {
@@ -111,14 +163,18 @@ export default function Favoritos() {
     const idString = String(academiaId);
     const listaAnterior = academiasFavoritas;
 
+    // Remove visualmente na hora.
     setAcademiasFavoritas((listaAtual) =>
       listaAtual.filter((academia) => String(academia.id) !== idString)
     );
 
     try {
+      // Remove no banco usando a mesma rota de toggle.
       await alternarFavoritoNoBanco(usuario.id, academiaId);
     } catch (error) {
       console.error('Erro ao remover favorito do banco:', error);
+
+      // Se der erro, volta a lista anterior.
       setAcademiasFavoritas(listaAnterior);
       setErro('Erro ao remover favorito do banco.');
     }
@@ -195,14 +251,18 @@ export default function Favoritos() {
                 overflow: 'hidden',
               }}
             >
-              <Image
-                source={getImagemAcademia(item)}
-                style={{
-                  width: 120,
-                  height: 120,
-                  backgroundColor: '#111',
-                }}
-              />
+              {item.fotoUrl ? (
+                <Image
+                  source={{ uri: item.fotoUrl }}
+                  style={{
+                    width: 120,
+                    height: 120,
+                    backgroundColor: '#111',
+                  }}
+                />
+              ) : (
+                <AcademiaSemFoto nome={item.nome} />
+              )}
 
               <View style={{ flex: 1, padding: 10 }}>
                 <Text
